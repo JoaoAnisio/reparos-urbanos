@@ -1,0 +1,18 @@
+# Ambiente virtual
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Dados (gerados pelo pipeline, reproduzíveis)
+data/
+*.db
+*.sqlite
+
+# Sistema / editor
+.DS_Store
+.vscode/
+.env
