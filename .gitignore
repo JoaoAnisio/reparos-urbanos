@@ -8,7 +8,11 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Dados (gerados pelo pipeline, reproduzíveis)
-data/
+data/*
+!data/README.md
+!data/raw/
+data/raw/*
+!data/raw/.gitkeep
 *.db
 *.sqlite
 
