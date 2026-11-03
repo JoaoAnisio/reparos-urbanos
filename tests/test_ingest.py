@@ -1,6 +1,7 @@
 """Roda os 6 testes da ingestão numa bronze TEMPORÁRIA (não toca em data/bronze).
 
-Uso:  python test_ingest.py data/raw/arquivo-final-3-trim-26.csv
+Uso:  python -m tests.test_ingest data/raw/arquivo-final-3-trim-26.csv
+
 
 As variações (republicação, trimestre misturado, outro trimestre) são geradas
 automaticamente a partir do seu arquivo real.
@@ -11,8 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
-from ingest import ingerir, versao_vigente  # noqa: E402
+from src.ingest import ingerir, versao_vigente  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="   [%(levelname)s] %(message)s")
 DATA_NO_INICIO = re.compile(r'^("?)(\d{2})/(\d{2})/(\d{4})')
