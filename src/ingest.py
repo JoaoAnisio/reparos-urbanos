@@ -12,11 +12,12 @@ import json
 import logging
 import re
 import shutil
-import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+
+from src.comum import MANIFESTO, ler_manifesto, normalizar
 
 RAIZ = Path(__file__).resolve().parent.parent
 BRONZE = RAIZ / "data" / "bronze" / "sp156"
@@ -25,7 +26,6 @@ FORMATO_VERSAO = "%Y%m%dT%H%M%S%fZ"   # MUDANÇA: microssegundos evitam colisão
 # O formato muda entre publicações: 2026T3 usa mm/dd, arquivos anteriores usam dd/mm.
 FORMATOS_DATA = ("%m/%d/%Y", "%d/%m/%Y")
 MAX_DATAS_INVALIDAS = 0.01             # mais de 1% de datas ilegíveis -> recusa
-MANIFESTO = "_manifest.json"
 COLUNA_ABERTURA = "data de abertura"
 COLUNA_FINALIZACAO = "data de finalizacao"
 
@@ -51,7 +51,7 @@ def ingerir(caminho_arquivo: Path, bronze: Path = BRONZE) -> Path | None:
     if versoes:
         vigente = max(versoes, key=lambda p: p.name)
         for versao_existente in versoes:
-            if _ler_manifesto(versao_existente).get("sha256") != sha256:
+            if ler_manifesto(versao_existente).get("sha256") != sha256:
                 continue
             if versao_existente == vigente:
                 log.info("Já ingerido: idêntico à versão vigente %s", vigente.name)
@@ -61,7 +61,7 @@ def ingerir(caminho_arquivo: Path, bronze: Path = BRONZE) -> Path | None:
                 f"{trimestre}. A vigente é {vigente.name}. Reingerir faria a pipeline voltar no tempo."
             )
         # Checagem extra: a "nova" versão deveria ter finalizações até uma data igual ou posterior
-        anterior = _ler_manifesto(vigente).get("finalizacao_max")
+        anterior = ler_manifesto(vigente).get("finalizacao_max")
         if anterior and perfil["finalizacao_max"] and perfil["finalizacao_max"] < anterior:
             log.warning(
                 "A nova versão tem última finalização (%s) anterior à da vigente (%s). "
@@ -107,39 +107,34 @@ def versao_vigente(trimestre: str, bronze: Path = BRONZE) -> Path:
 
 # ----------------------------------------------------------------- detecção do trimestre
 def _perfilar(caminho: Path) -> dict:
-    """Lê as colunas principais e devolve o trimestre e um resumo para o manifesto."""
+    """Lê as colunas de data, serviço e status e devolve o trimestre e um resumo para o manifesto."""
     encoding, sep, cabecalho = _detectar_formato(caminho)
-    nomes = {_normalizar(c): c for c in cabecalho}
-    
-    # 1. Checagem e inclusão de "servico" e "status" no usecols
+    nomes = {normalizar(c): c for c in cabecalho}
+
     if COLUNA_ABERTURA not in nomes:
         raise ValueError(f"Coluna 'Data de Abertura' não encontrada. Colunas: {cabecalho}")
     if "servico" not in nomes or "status" not in nomes:
-         raise ValueError(f"Colunas 'servico' ou 'status' não encontradas. Colunas: {cabecalho}")
-        
+        raise ValueError(f"Colunas 'Serviço' ou 'Status' não encontradas. Colunas: {cabecalho}")
+
+    # Serviço e Status nunca são nulos em linhas reais (Etapa 1): servem para reconhecer enchimento.
     colunas = [nomes[COLUNA_ABERTURA], nomes["servico"], nomes["status"]]
     if COLUNA_FINALIZACAO in nomes:
         colunas.append(nomes[COLUNA_FINALIZACAO])
 
     df = pd.read_csv(caminho, sep=sep, encoding=encoding, usecols=colunas, dtype=str)
-    
-    # 2. Criação da máscara para linhas onde abertura, serviço e status são nulos
+
+    # Linhas sem data, serviço e status são enchimento de planilha (ex.: 2025T1), não dados.
     vazia = df[[nomes[COLUNA_ABERTURA], nomes["servico"], nomes["status"]]].isna().all(axis=1)
-    
-    # 3. Separação dos dados válidos e contagem de linhas vazias
     dados = df[~vazia]
     linhas_vazias = int(vazia.sum())
-    
-    # 6. Registro do log caso existam linhas completamente vazias
-    if linhas_vazias > 0:
-        log.warning(f"Encontradas {linhas_vazias} linhas vazias (sem data, serviço e status) no arquivo {caminho.name}.")
+    if linhas_vazias:
+        log.warning("%d linhas vazias (sem data, serviço e status) em %s", linhas_vazias, caminho.name)
 
-    # 4. Checagem do limite do Excel aplicada apenas aos dados reais
+    # Só é truncamento se as linhas COM dados batem no limite do Excel.
     if len(dados) == 1_048_575:
-        raise ValueError("Arquivo com exatamente 1.048.575 linhas válidas: limite do Excel. "
-                         "Provável truncamento ou arquivo salvo por planilha.")
-                         
-    # 5. Passando 'dados' (DataFrame filtrado) para as funções de data
+        raise ValueError("Arquivo com exatamente 1.048.575 linhas com dados: limite do Excel. "
+                         "Provável truncamento.")
+
     formato, abertura, trimestre = _interpretar_datas(dados[nomes[COLUNA_ABERTURA]])
 
     finalizacao_max = None
@@ -151,8 +146,8 @@ def _perfilar(caminho: Path) -> dict:
     return {
         "trimestre": trimestre,
         "formato_data": formato,
-        "linhas": len(dados),           # 6. Atualizado para usar len(dados)
-        "linhas_vazias": linhas_vazias, # 6. Novo campo adicionado
+        "linhas": len(dados),
+        "linhas_vazias": linhas_vazias,
         "abertura_min": abertura.min().date().isoformat(),
         "abertura_max": abertura.max().date().isoformat(),
         "finalizacao_max": finalizacao_max,
@@ -201,13 +196,7 @@ def _detectar_formato(caminho: Path) -> tuple[str, str, list[str]]:
     return encoding, sep, cabecalho
 
 
-def _normalizar(texto: str) -> str:
-    """'Data de Finalização' -> 'data de finalizacao' (sem acento, minúsculo)."""
-    sem_acento = "".join(c for c in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(c))
-    return " ".join(sem_acento.lower().split())
-
-
-# ----------------------------------------------------------------- auxiliares (suas, com ajustes)
+# ----------------------------------------------------------------- auxiliares
 def _sha256(caminho: Path, bloco: int = 1024 * 1024) -> str:
     h = hashlib.sha256()
     with caminho.open("rb") as f:
@@ -218,10 +207,6 @@ def _sha256(caminho: Path, bloco: int = 1024 * 1024) -> str:
 
 def _versoes_validas(pasta_trimestre: Path) -> list[Path]:
     return [p for p in pasta_trimestre.glob("versao=*") if _versao_valida(p)]
-
-
-def _ler_manifesto(pasta: Path) -> dict:
-    return json.loads((pasta / MANIFESTO).read_text(encoding="utf-8"))
 
 
 def _validar_trimestre(trimestre: str) -> None:
