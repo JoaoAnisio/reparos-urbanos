@@ -24,7 +24,12 @@ def trocar_mes(linha: str, mes: str) -> str:
 
 
 def main(original: Path) -> None:
-    tmp = Path(tempfile.mkdtemp(prefix="teste_ingestao_"))
+    # A pasta temporária (com várias cópias do CSV) é apagada ao sair do with, mesmo se algo falhar.
+    with tempfile.TemporaryDirectory(prefix="teste_ingestao_") as pasta:
+        _rodar_cenarios(original, Path(pasta))
+
+
+def _rodar_cenarios(original: Path, tmp: Path) -> None:
     bronze = tmp / "bronze"
     linhas = original.read_text(encoding="utf-8").splitlines(keepends=True)
     cabecalho, dados = linhas[0], linhas[1:]
@@ -38,8 +43,10 @@ def main(original: Path) -> None:
     misto = tmp / "misto.csv"
     misto.write_text(cabecalho + trocar_mes(dados[0], "04") + "".join(dados[1:]), encoding="utf-8")
 
+    # Amostra espalhada pelo arquivo: precisa de dias > 12, senão mm/dd e dd/mm ficam ambíguos.
+    # Mês 05 (e não 04) porque a amostra tem dia 31, que não existe em abril.
     outro_tri = tmp / "outro_trimestre.csv"
-    outro_tri.write_text(cabecalho + "".join(trocar_mes(l, "04") for l in dados[:100]), encoding="utf-8")
+    outro_tri.write_text(cabecalho + "".join(trocar_mes(l, "05") for l in dados[::100]), encoding="utf-8")
 
     def rodar(nome, arquivo, esperado):
         print(f"\n{nome}")
@@ -59,7 +66,7 @@ def main(original: Path) -> None:
     rodar("5) Arquivo antigo (v1) de novo", original, "RECUSADO: idêntico a uma versão ANTIGA")
     rodar("6) Trimestres misturados", misto, "RECUSADO: mistura trimestres")
 
-    print(f"\nEstrutura gerada em {bronze}:")
+    print(f"\nEstrutura gerada em {bronze} (apagada ao final):")
     for p in sorted(bronze.rglob("*")):
         print("   ", p.relative_to(bronze))
 
