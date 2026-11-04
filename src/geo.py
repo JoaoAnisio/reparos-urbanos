@@ -30,6 +30,15 @@ from src.silver import anexar_subprefeitura
 
 RESOLUCOES = (8, 10)
 
+# Colunas que o enriquecer acrescenta (a silver grava SCHEMA_VALIDADO + COLUNAS_GEO). Subprefeitura,
+# zona e flag_sem_subprefeitura já existem na silver; o geo as recalcula pelo distrito_final.
+COLUNAS_GEO = [
+    "celula_r8", "celula_r10",
+    "distrito_inferido", "confianca_distrito", "nivel_distrito", "flag_distrito_divisa", "flag_sem_votos",
+    "distrito_final", "origem_distrito",
+    "dist_vizinho_m", "flag_repeticao",
+]
+
 # Ordem da votação: (resolução, k do grid_disk). Validação com 5.000 chamados com distrito,
 # retirados dos eleitores: acerto de 97,3% em r10 (98,9% quando a confiança é >= 80%) e
 # 88,6% em r8, por isso r8 só entra quando r10 com as vizinhas não tem nenhum voto.

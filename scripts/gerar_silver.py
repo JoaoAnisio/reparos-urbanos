@@ -25,13 +25,16 @@ def main() -> None:
     print(tabela.to_string())
 
     print("\nFlags nos válidos:")
-    for flag in ["flag_finalizado_sem_data", "flag_sem_subprefeitura", "flag_corredor"]:
+    for flag in ["flag_finalizado_sem_data", "flag_sem_subprefeitura", "flag_corredor",
+                 "flag_repeticao", "flag_distrito_divisa", "flag_sem_votos"]:
         print(f"  {flag}: {int(validos[flag].sum()):,}")
 
+    print("\nOrigem do distrito_final:", validos["origem_distrito"].value_counts(dropna=False).to_dict())
+    print("Nível da inferência:", validos["nivel_distrito"].value_counts().to_dict())
     sem_sub = validos["flag_sem_subprefeitura"]
-    print(f"\nVálidos sem subprefeitura: {int(sem_sub.sum()):,} "
-          f"(distrito nulo: {int((sem_sub & validos['distrito'].isna()).sum()):,}, "
-          f"distrito fora da referência: {int((sem_sub & validos['distrito'].notna()).sum()):,})")
+    print(f"Válidos sem subprefeitura: {int(sem_sub.sum()):,} "
+          f"(sem distrito_final: {int((sem_sub & validos['distrito_final'].isna()).sum()):,}, "
+          f"distrito_final fora da referência: {int((sem_sub & validos['distrito_final'].notna()).sum()):,})")
 
     print("\nTipos depois de ler o Parquet de volta:")
     for nome, original in [("chamados", validos), ("rejeitados", rejeitados)]:

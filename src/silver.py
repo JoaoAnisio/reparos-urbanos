@@ -7,6 +7,8 @@ Regras:
 - data_extracao é ESTIMADA pela maior data presente no arquivo (ver _data_extracao).
 - validar separa válidos e rejeitados; o rejeitado guarda o PRIMEIRO motivo de REGRAS que se aplicar.
 - A subprefeitura vem da tabela de referência (seed) REFERENCIA_SUBPREFEITURA, pelo distrito.
+- Os válidos passam por geo.enriquecer antes de gravar: só acrescenta colunas (células, distrito
+  inferido e final, repetições) e recalcula a subprefeitura; não muda quem é rejeitado.
 - gerar_silver grava chamados.parquet e rejeitados.parquet com escrita atômica, como a bronze,
   e o _manifest.json por último. Sem manifesto (ou com contagens diferentes) = silver incompleta.
 """
@@ -70,8 +72,9 @@ SCHEMA = [
     "canal", "orgao", "logradouro", "lat", "lon", "distrito",
     "trimestre", "versao_bronze", "data_extracao",
 ]
-SCHEMA_CHAMADOS = SCHEMA + ["subprefeitura", "zona", "flag_finalizado_sem_data", "flag_sem_subprefeitura"]
-SCHEMA_REJEITADOS = SCHEMA_CHAMADOS + ["motivo"]
+# O que validar devolve. Os rejeitados param aqui; os válidos ainda passam pelo geo.enriquecer.
+SCHEMA_VALIDADO = SCHEMA + ["subprefeitura", "zona", "flag_finalizado_sem_data", "flag_sem_subprefeitura"]
+SCHEMA_REJEITADOS = SCHEMA_VALIDADO + ["motivo"]
 
 # Ordem importa: o primeiro motivo que se aplicar é o que fica.
 REGRAS = [
@@ -148,26 +151,37 @@ def validar(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     df["flag_sem_subprefeitura"] = df["subprefeitura"].isna()
 
     rejeitado = motivo != ""
-    validos = df.loc[~rejeitado, SCHEMA_CHAMADOS].reset_index(drop=True)
+    validos = df.loc[~rejeitado, SCHEMA_VALIDADO].reset_index(drop=True)
     rejeitados = df.loc[rejeitado].assign(motivo=pd.Series(motivo[rejeitado], dtype="string").values)
     return validos, rejeitados[SCHEMA_REJEITADOS].reset_index(drop=True)
 
 
 def gerar_silver(trimestres: list[str] | None = None, saida: Path = SILVER,
                  bronze: Path = BRONZE) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Lê os trimestres (todos, por padrão), valida, anexa a subprefeitura e grava os dois Parquet."""
+    """Lê os trimestres (todos, por padrão), anexa a subprefeitura, valida, enriquece os válidos
+    com o geo e grava os dois Parquet. O geo só acrescenta colunas: não muda quem é rejeitado."""
+    # Import local: o geo usa anexar_subprefeitura deste módulo; no topo, seria um import circular.
+    from src import geo
+
     if trimestres is None:
         trimestres = sorted(p.name.split("=")[1] for p in bronze.glob("trimestre=*"))
     if not trimestres:
         raise FileNotFoundError(f"Nenhum trimestre na bronze ({bronze}). Rode a ingestão antes.")
     df = pd.concat([ler_trimestre(t, bronze=bronze) for t in trimestres], ignore_index=True)
     validos, rejeitados = validar(anexar_subprefeitura(df))
+    validos = geo.enriquecer(validos)[SCHEMA_VALIDADO + geo.COLUNAS_GEO]
     manifesto = {
         "gerado_em": datetime.now(timezone.utc).isoformat(),
         "versoes_bronze": df.groupby("trimestre")["versao_bronze"].first().to_dict(),
         "linhas_validas": len(validos),
         "linhas_rejeitadas": len(rejeitados),
         "rejeitados_por_motivo": rejeitados["motivo"].value_counts().to_dict(),
+        "parametros_geo": {
+            "limite_repeticao_m": geo.LIMITE_REPETICAO_M,
+            "janela_repeticao_dias": geo.JANELA_REPETICAO_DIAS,
+            "niveis_votacao": geo.NIVEIS_VOTACAO,
+            "confianca_minima": geo.CONFIANCA_MINIMA,
+        },
     }
     caminho_manifesto = saida / MANIFESTO
     _gravar_atomico({saida / "chamados.parquet": validos, saida / "rejeitados.parquet": rejeitados},

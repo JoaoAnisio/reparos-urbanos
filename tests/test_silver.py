@@ -98,3 +98,23 @@ def test_parquet_gravado_reconcilia():
     assert set(manifesto["versoes_bronze"]) == set(ESPERADO), "silver gerada com outros trimestres"
     vigentes = {t: versao_vigente(t).name.split("=")[1] for t in ESPERADO}
     assert manifesto["versoes_bronze"] == vigentes, "silver desatualizada: rode python -m scripts.gerar_silver"
+
+def test_silver_gravada_inclui_o_geo_e_seus_parametros():
+    """O gerar_silver grava as colunas do geo e registra na linhagem os parâmetros usados."""
+    from src import geo
+    from src.silver import SCHEMA_VALIDADO
+
+    if not (SILVER / "chamados.parquet").exists():
+        pytest.skip("silver ainda não gerada: rode python -m scripts.gerar_silver")
+    validos, _, manifesto = ler_silver()
+    assert list(validos.columns) == SCHEMA_VALIDADO + geo.COLUNAS_GEO
+    # JSON grava tuplas como listas: compara depois de converter
+    assert manifesto["parametros_geo"] == {
+        "limite_repeticao_m": geo.LIMITE_REPETICAO_M,
+        "janela_repeticao_dias": geo.JANELA_REPETICAO_DIAS,
+        "niveis_votacao": [list(n) for n in geo.NIVEIS_VOTACAO],
+        "confianca_minima": geo.CONFIANCA_MINIMA,
+    }, "silver gerada com outros parâmetros do geo: rode python -m scripts.gerar_silver"
+    # Só o distrito_final sem valor fica sem subprefeitura; o inferido ganha subprefeitura
+    assert (validos["flag_sem_subprefeitura"] == validos["distrito_final"].isna()).all()
+    assert validos.loc[validos["origem_distrito"] == "inferido", "subprefeitura"].notna().all()
