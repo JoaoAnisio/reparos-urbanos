@@ -1,6 +1,9 @@
 """Verificações da silver contra o levantamento do escopo (lê a bronze real).
 
 Uso:  python -m pytest tests/test_silver.py -v
+
+Sem bronze (ex.: CI), o arquivo inteiro é pulado. Os testes "contrato" verificam premissas sobre a
+fonte: não tratam registros (isso é papel das REGRAS da silver), avisam quando a fonte muda.
 """
 import pandas as pd
 import pytest
@@ -8,7 +11,7 @@ from pandas.api.types import is_datetime64_any_dtype, is_float_dtype
 
 from src.comum import ler_manifesto
 from src.ingest import BRONZE, versao_vigente
-from src.silver import _data_extracao, ler_trimestre
+from src.silver import SILVER, _data_extracao, ler_silver, ler_trimestre
 
 # Contagens da pergunta 3 de scripts/levantamento_escopo.py
 ESPERADO = {
@@ -20,13 +23,14 @@ STATUS_VALIDOS = {"aberto", "finalizado", "cancelado"}
 CANAIS_VALIDOS = {"portal", "mobile", "central", "chatbot", "outros"}
 DATAS = ["data_abertura", "data_finalizacao", "data_extracao"]
 
+pytestmark = pytest.mark.skipif(not any(BRONZE.glob("trimestre=*")),
+                                reason="bronze ausente (ex.: CI); rode a ingestão para testar")
+
 
 @pytest.fixture(scope="module")
 def df() -> pd.DataFrame:
     """Lê os 9 trimestres UMA vez e compartilha com todos os testes do arquivo."""
     trimestres = sorted(p.name.split("=")[1] for p in BRONZE.glob("trimestre=*"))
-    if not trimestres:
-        pytest.skip("bronze vazia: rode python -m scripts.ingest_all antes")
     return pd.concat([ler_trimestre(t) for t in trimestres], ignore_index=True)
 
 
@@ -63,20 +67,34 @@ def test_datas_sem_fuso(df):
     assert not com_fuso, f"colunas com fuso horário: {com_fuso}"
 
 
-def test_extracao_posterior_as_datas_do_arquivo(df):
-    """A estimativa da extração é um limite inferior: nenhuma data do arquivo pode passar dela."""
-    assert (df["data_abertura"] <= df["data_extracao"]).all(), "abertura posterior à extração"
-    fim = df["data_finalizacao"].notna()
-    assert (df.loc[fim, "data_finalizacao"] <= df.loc[fim, "data_extracao"]).all(), "finalização posterior à extração"
+def test_contrato_aberto_sem_finalizacao(df):
+    """Na fonte, chamado aberto (ou em andamento) nunca traz data de finalização."""
+    com_data = df.loc[(df["status"] == "aberto") & df["data_finalizacao"].notna(), "trimestre"]
+    assert com_data.empty, f"abertos com finalização por trimestre: {com_data.value_counts().to_dict()}"
+
+
+def test_contrato_cancelado_com_finalizacao(df):
+    """Na fonte, o cancelamento sempre é registrado com data de finalização."""
+    sem_data = df.loc[(df["status"] == "cancelado") & df["data_finalizacao"].isna(), "trimestre"]
+    assert sem_data.empty, f"cancelados sem finalização por trimestre: {sem_data.value_counts().to_dict()}"
 
 
 def test_extracao_anterior_a_ingestao():
     """Ninguém ingere um arquivo antes de ele existir."""
-    pastas = list(BRONZE.glob("trimestre=*"))
-    if not pastas:
-        pytest.skip("bronze vazia: rode python -m scripts.ingest_all antes")
-    for pasta in pastas:
+    for pasta in BRONZE.glob("trimestre=*"):
         man = ler_manifesto(versao_vigente(pasta.name.split("=")[1]))
         ingerido = pd.Timestamp(man["ingerido_em"]).tz_localize(None)
         estimada = _data_extracao(man)  # a regra real da silver, não uma cópia dela
         assert estimada <= ingerido, f"{man['trimestre']}: extração {estimada} depois da ingestão {ingerido}"
+
+
+def test_parquet_gravado_reconcilia():
+    """Confere o que gerar_silver GRAVOU (não só o que ler_trimestre lê), via manifesto da silver."""
+    if not (SILVER / "chamados.parquet").exists():
+        pytest.skip("silver ainda não gerada: rode python -m scripts.gerar_silver")
+    validos, rejeitados, manifesto = ler_silver()  # recusa silver sem manifesto ou inconsistente
+    assert len(validos) + len(rejeitados) == sum(ESPERADO.values())
+    assert sum(manifesto["rejeitados_por_motivo"].values()) == len(rejeitados)
+    assert set(manifesto["versoes_bronze"]) == set(ESPERADO), "silver gerada com outros trimestres"
+    vigentes = {t: versao_vigente(t).name.split("=")[1] for t in ESPERADO}
+    assert manifesto["versoes_bronze"] == vigentes, "silver desatualizada: rode python -m scripts.gerar_silver"
