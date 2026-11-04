@@ -77,6 +77,8 @@ SCHEMA_REJEITADOS = SCHEMA_CHAMADOS + ["motivo"]
 REGRAS = [
     ("data de abertura inválida", lambda df: df["data_abertura"].isna()),
     ("finalização anterior à abertura", lambda df: df["data_finalizacao"] < df["data_abertura"]),
+    # Só tem efeito com data de extração DECLARADA. Com a estimativa atual (maior data do próprio
+    # arquivo) é sempre falsa; o teste com dados sintéticos garante que a lógica funciona.
     ("finalização no futuro", lambda df: df["data_finalizacao"] > df["data_extracao"]),
     ("status inválido", lambda df: df["status"].isna()),
     ("sem coordenada", lambda df: df["lat"].isna() | df["lon"].isna()),
@@ -174,7 +176,7 @@ def gerar_silver(trimestres: list[str] | None = None, saida: Path = SILVER,
     return validos, rejeitados
 
 
-def ler_silver(saida: Path = SILVER) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+def ler_silver(saida: Path = SILVER, bronze: Path = BRONZE) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Lê (válidos, rejeitados, manifesto) e recusa uma silver incompleta ou inconsistente."""
     if not (saida / MANIFESTO).exists():
         raise FileNotFoundError(f"{saida} sem {MANIFESTO}: silver não gerada ou geração interrompida.")
@@ -185,6 +187,14 @@ def ler_silver(saida: Path = SILVER) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     esperado = (manifesto["linhas_validas"], manifesto["linhas_rejeitadas"])
     if obtido != esperado:
         raise ValueError(f"Silver inconsistente: Parquet com {obtido} linhas, manifesto diz {esperado}.")
+
+    usadas = manifesto.get("versoes_bronze", {})  # manifesto antigo sem o campo: tudo conta como desatualizado
+    atuais = {p.name.split("=")[1]: versao_vigente(p.name.split("=")[1], bronze=bronze).name.split("=")[1]
+              for p in bronze.glob("trimestre=*")}
+    desatualizados = sorted(t for t in atuais if usadas.get(t) != atuais[t])
+    if desatualizados:
+        log.warning("Silver desatualizada em relação à bronze nos trimestres %s. "
+                    "Rode scripts.gerar_silver.", desatualizados)
     return validos, rejeitados, manifesto
 
 

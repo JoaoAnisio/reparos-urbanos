@@ -112,21 +112,21 @@ def _silver_falsa(pasta, validas: int, rejeitadas: int, manifesto: dict | None) 
 
 
 def test_ler_silver_aceita_silver_consistente(tmp_path):
-    _silver_falsa(tmp_path, 3, 1, {"linhas_validas": 3, "linhas_rejeitadas": 1})
-    validos, rejeitados, _ = ler_silver(tmp_path)
+    _silver_falsa(tmp_path, 3, 1, {"linhas_validas": 3, "linhas_rejeitadas": 1, "versoes_bronze": {}})
+    validos, rejeitados, _ = ler_silver(tmp_path, bronze=tmp_path)  # bronze vazia: não depende dos dados reais
     assert (len(validos), len(rejeitados)) == (3, 1)
 
 
 def test_ler_silver_recusa_sem_manifesto(tmp_path):
     _silver_falsa(tmp_path, 3, 1, manifesto=None)
     with pytest.raises(FileNotFoundError, match="geração interrompida"):
-        ler_silver(tmp_path)
+        ler_silver(tmp_path, bronze=tmp_path)
 
 
 def test_ler_silver_recusa_contagem_diferente(tmp_path):
     _silver_falsa(tmp_path, 3, 1, {"linhas_validas": 5, "linhas_rejeitadas": 1})
     with pytest.raises(ValueError, match="inconsistente"):
-        ler_silver(tmp_path)
+        ler_silver(tmp_path, bronze=tmp_path)
 
 
 def test_gravacao_apaga_o_manifesto_antigo_antes_de_trocar(tmp_path):
@@ -137,3 +137,31 @@ def test_gravacao_apaga_o_manifesto_antigo_antes_de_trocar(tmp_path):
     _gravar_atomico(novos, invalidar=tmp_path / MANIFESTO)
     assert not (tmp_path / MANIFESTO).exists()
     assert sorted(p.name for p in tmp_path.iterdir()) == ["chamados.parquet", "rejeitados.parquet"]
+
+
+def _bronze_falsa(pasta, trimestre: str, versao: str):
+    """Uma versão válida da bronze: pasta versao=..., manifesto e o arquivo citado nele."""
+    destino = pasta / f"trimestre={trimestre}" / f"versao={versao}"
+    destino.mkdir(parents=True)
+    (destino / "dados.csv").write_text("x\n1\n", encoding="utf-8")
+    (destino / MANIFESTO).write_text(json.dumps({"arquivo": "dados.csv"}), encoding="utf-8")
+    return pasta
+
+
+def test_ler_silver_avisa_quando_a_bronze_tem_versao_mais_nova(tmp_path, caplog):
+    silver, bronze = tmp_path / "silver", _bronze_falsa(tmp_path / "bronze", "2026T3", "20261201T000000000000Z")
+    silver.mkdir()
+    _silver_falsa(silver, 3, 1, {"linhas_validas": 3, "linhas_rejeitadas": 1,
+                                 "versoes_bronze": {"2026T3": "20261101T000000000000Z"}})
+    with caplog.at_level(logging.WARNING, logger="silver"):
+        ler_silver(silver, bronze=bronze)
+    assert "desatualizada" in caplog.text and "2026T3" in caplog.text
+
+
+def test_ler_silver_tolera_manifesto_antigo_sem_versoes(tmp_path, caplog):
+    silver, bronze = tmp_path / "silver", _bronze_falsa(tmp_path / "bronze", "2026T3", "20261201T000000000000Z")
+    silver.mkdir()
+    _silver_falsa(silver, 3, 1, {"linhas_validas": 3, "linhas_rejeitadas": 1})   # sem "versoes_bronze"
+    with caplog.at_level(logging.WARNING, logger="silver"):
+        validos, _, _ = ler_silver(silver, bronze=bronze)
+    assert len(validos) == 3 and "2026T3" in caplog.text
