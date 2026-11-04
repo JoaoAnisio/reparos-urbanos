@@ -2,6 +2,7 @@
 import h3
 import pandas as pd
 import pytest
+import math
 
 from src.geo import (CONFIANCA_MINIMA, LIMITE_REPETICAO_M, RESOLUCAO_REPETICAO, RESOLUCOES, adicionar_celulas,
                      distancia_m, enriquecer, k_para_raio, raio_garantido_m)
@@ -81,3 +82,47 @@ def test_nao_altera_o_dataframe_recebido():
     copia = original.copy()
     enriquecer(original)
     pd.testing.assert_frame_equal(original, copia)
+
+@pytest.mark.parametrize("raio", [50, 80, 120])
+def test_disco_cobre_o_raio_em_qualquer_direcao(raio):
+    res = RESOLUCAO_REPETICAO
+    k = k_para_raio(raio, res)
+    lat0, lon0 = -23.55, -46.63
+    for passo in range(2000):  # pontos de origem espalhados + 36 direções cada
+        lat = lat0 + (passo % 50) * 0.00013
+        lon = lon0 + (passo // 50) * 0.00013
+        centro = h3.latlng_to_cell(lat, lon, res)
+        disco = set(h3.grid_disk(centro, k))
+        for grau in range(0, 360, 10):
+            ang = math.radians(grau)
+            dlat = raio * math.cos(ang) / 111_320
+            dlon = raio * math.sin(ang) / (111_320 * math.cos(math.radians(lat)))
+            assert h3.latlng_to_cell(lat + dlat, lon + dlon, res) in disco
+
+def test_distrito_final_origem_e_subprefeitura():
+    eleitores = [chamado(norte_m=i, distrito="REPUBLICA") for i in range(5)]
+    inferido = chamado(norte_m=2, distrito=None)
+    sem_votos = chamado(norte_m=20_000, distrito=None)
+    df = enriquecer(tabela(*eleitores, inferido, sem_votos))
+    informado, inf, sem = df.iloc[0], df.iloc[-2], df.iloc[-1]
+
+    assert (informado["distrito_final"], informado["origem_distrito"]) == ("REPUBLICA", "informado")
+    assert (inf["distrito_final"], inf["origem_distrito"]) == ("REPUBLICA", "inferido")
+    assert pd.isna(sem["distrito_final"]) and pd.isna(sem["origem_distrito"])
+    # subprefeitura e zona saem do distrito_final: o inferido também ganha as duas
+    assert (inf["subprefeitura"], inf["zona"]) == ("SE", "Centro") and not inf["flag_sem_subprefeitura"]
+    assert pd.isna(sem["subprefeitura"]) and sem["flag_sem_subprefeitura"]
+
+
+def test_reanexa_por_cima_da_subprefeitura_da_silver():
+    df = tabela(*(chamado(norte_m=i, distrito="REPUBLICA") for i in range(3)), chamado(norte_m=1, distrito=None))
+    df["subprefeitura"], df["zona"] = pd.NA, pd.NA      # como vem da silver: o sem distrito não tem
+    resultado = enriquecer(df)
+    assert resultado["subprefeitura"].tolist() == ["SE"] * 4
+    assert list(resultado.columns).count("subprefeitura") == 1, "não pode duplicar a coluna no merge"
+
+
+def test_coordenada_nula_quebra_com_mensagem():
+    df = tabela(chamado(), {**chamado(), "lat": None})
+    with pytest.raises(AssertionError, match="silver validada"):
+        adicionar_celulas(df)

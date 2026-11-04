@@ -5,8 +5,19 @@ Regras (análise em notebooks/02_exploracao.ipynb):
   último recurso da votação e serve para agregar em mapas.
 - Distrito nulo é inferido por votação: o distrito mais comum entre os chamados COM distrito nas
   células de NIVEIS_VOTACAO, em ordem, até haver votos. A confiança é a proporção do vencedor.
+- distrito_final = informado ou, na falta dele, inferido (origem_distrito diz qual). Subprefeitura
+  e zona são reanexadas por ele, e não pelo distrito informado.
 - Repetição: outro chamado na mesma rua, a até LIMITE_REPETICAO_M e aberto a até
   JANELA_REPETICAO_DIAS. A flag marca os dois lados do par; não decide qual descartar.
+
+Premissa: recebe a silver validada (sem coordenada nula).
+
+Limitação conhecida: "mesma rua" compara o logradouro normalizado, então esquinas (Rua dos
+Piemonteses x Rua Agostinho de Azevedo) e apelidos de rodovia (Estrada do M'Boi Mirim x SP-214)
+contam como ruas diferentes. Medido nos 244 mil chamados: dos pares a menos de 20 m em ±7 dias,
+2,2% têm ruas diferentes, e só 2.630 chamados (1,1%) ficariam com flag_repeticao se a rua não
+importasse. Abreviações não são o problema: os logradouros vêm por extenso, e expandir "Av.",
+"R.", "Trav." recuperaria 4 chamados.
 """
 import math
 
@@ -15,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 from src.comum import normalizar
+from src.silver import anexar_subprefeitura
 
 RESOLUCOES = (8, 10)
 
@@ -38,13 +50,15 @@ RAIO_TERRA_M = 6_371_000
 
 # ----------------------------------------------------------------- funções públicas
 def enriquecer(chamados: pd.DataFrame) -> pd.DataFrame:
-    """Aplica células, distrito inferido e repetições. Não altera o DataFrame recebido."""
+    """Aplica células, distrito inferido e final, subprefeitura e repetições. Não altera a entrada."""
     df = adicionar_celulas(chamados)
     df = inferir_distrito(df)
+    df = consolidar_distrito(df)
     return marcar_repeticoes(df)
 
 
 def adicionar_celulas(chamados: pd.DataFrame) -> pd.DataFrame:
+    assert chamados[["lat", "lon"]].notna().all().all(), "geo espera a silver validada"
     df = chamados.copy()
     for res in RESOLUCOES:
         df[f"celula_r{res}"] = pd.array(
@@ -73,6 +87,22 @@ def inferir_distrito(df: pd.DataFrame) -> pd.DataFrame:
     df["flag_sem_votos"] = sem_distrito & df["distrito_inferido"].isna()  # provável erro de geocodificação
     df["flag_distrito_divisa"] = (df["confianca_distrito"] < CONFIANCA_MINIMA).fillna(False).astype(bool)
     return df
+
+
+def consolidar_distrito(df: pd.DataFrame) -> pd.DataFrame:
+    """distrito_final e origem_distrito ("informado" / "inferido"; nula se nenhum dos dois), e
+    subprefeitura, zona e flag_sem_subprefeitura recalculadas a partir do distrito_final."""
+    df = df.copy()
+    df["distrito_final"] = df["distrito"].fillna(df["distrito_inferido"])
+    df["origem_distrito"] = pd.Series(pd.NA, index=df.index, dtype="string")
+    df.loc[df["distrito"].notna(), "origem_distrito"] = "informado"
+    df.loc[df["distrito"].isna() & df["distrito_inferido"].notna(), "origem_distrito"] = "inferido"
+
+    juntado = anexar_subprefeitura(df.drop(columns=["subprefeitura", "zona"], errors="ignore"),
+                                   coluna="distrito_final")
+    juntado.index = df.index  # o merge preserva a ordem, mas recria o índice
+    juntado["flag_sem_subprefeitura"] = juntado["subprefeitura"].isna()
+    return juntado
 
 
 def marcar_repeticoes(df: pd.DataFrame) -> pd.DataFrame:
@@ -105,13 +135,13 @@ def distancia_m(lat1, lon1, lat2, lon2):
 
 
 def raio_garantido_m(res: int, k: int) -> float:
-    """Distância até onde o grid_disk(k) cobre TODO ponto, esteja o chamado onde estiver na célula.
+    """Distância que o grid_disk(k) cobre a partir de QUALQUER ponto da célula central.
 
-    O disco alcança (2k+1) apótemas a partir do centro; o chamado pode estar até uma aresta
-    longe do centro. Dividido por MARGEM_RAIO porque as células não têm todas o tamanho médio.
+    O pior caso é um ponto num vértice da célula: dali, a borda do disco fica a k arestas
+    (as "reentrâncias" entre as células externas). Medido por simulação: com r10, k=1 cobre
+    ~76 m sem perdas e k=2 cobre 160 m. Dividido por MARGEM_RAIO pela variação de tamanho.
     """
-    aresta = h3.average_hexagon_edge_length(res, unit="m")
-    return ((2 * k + 1) * aresta * math.sqrt(3) / 2 - aresta) / MARGEM_RAIO
+    return k * h3.average_hexagon_edge_length(res, unit="m") / MARGEM_RAIO
 
 
 def k_para_raio(raio_m: float, res: int) -> int:

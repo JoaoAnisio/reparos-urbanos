@@ -122,11 +122,15 @@ def ler_trimestre(trimestre: str, bronze: Path = BRONZE) -> pd.DataFrame:
     return _transformar(bruto, manifesto)
 
 
-def anexar_subprefeitura(df: pd.DataFrame, referencia: Path = REFERENCIA_SUBPREFEITURA) -> pd.DataFrame:
-    """Acrescenta subprefeitura e zona pelo distrito. Distrito sem correspondência gera aviso."""
-    ref = pd.read_csv(referencia, dtype="string")
-    juntado = df.merge(ref, on="distrito", how="left", validate="many_to_one")
-    sem_par = juntado.loc[juntado["distrito"].notna() & juntado["subprefeitura"].isna(), "distrito"]
+def anexar_subprefeitura(df: pd.DataFrame, referencia: Path = REFERENCIA_SUBPREFEITURA,
+                         coluna: str = "distrito") -> pd.DataFrame:
+    """Acrescenta subprefeitura e zona pela coluna de distrito indicada (o geo usa distrito_final).
+
+    Distrito sem correspondência gera aviso. O merge preserva a ordem das linhas, mas não o índice.
+    """
+    ref = pd.read_csv(referencia, dtype="string").rename(columns={"distrito": coluna})
+    juntado = df.merge(ref, on=coluna, how="left", validate="many_to_one")
+    sem_par = juntado.loc[juntado[coluna].notna() & juntado["subprefeitura"].isna(), coluna]
     if not sem_par.empty:
         log.warning("Distritos ausentes em %s (%d chamados ficam sem subprefeitura): %s",
                     referencia.name, len(sem_par), sorted(sem_par.unique()))
