@@ -2,20 +2,32 @@
 
 Regras:
 - Escopo: lista explícita de serviços (SERVICOS_ESCOPO). Serviço com "buraco" fora da lista gera aviso.
-- Nenhuma linha do escopo é descartada: data ilegível vira NaT, status desconhecido vira nulo,
+- ler_trimestre não descarta nada: data ilegível vira NaT, status desconhecido vira nulo,
   canal desconhecido vira "outros", coordenada 0 vira nula.
 - data_extracao é ESTIMADA pela maior data presente no arquivo (ver _data_extracao).
-- Validação (coordenada fora de SP, data inválida...) e subprefeitura ficam para a etapa 3c.
+- validar separa válidos e rejeitados; o rejeitado guarda o PRIMEIRO motivo de REGRAS que se aplicar.
+- A subprefeitura vem da tabela de referência (seed) REFERENCIA_SUBPREFEITURA, pelo distrito.
+- gerar_silver grava chamados.parquet e rejeitados.parquet com escrita atômica, como a bronze,
+  e o _manifest.json por último. Sem manifesto (ou com contagens diferentes) = silver incompleta.
 """
+import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
-from src.comum import ler_manifesto, normalizar
-from src.ingest import BRONZE, versao_vigente
+from src.comum import MANIFESTO, ler_manifesto, normalizar
+from src.ingest import BRONZE, RAIZ, versao_vigente
 
 TAMANHO_BLOCO = 100_000
+SILVER = RAIZ / "data" / "silver"
+REFERENCIA_SUBPREFEITURA = RAIZ / "src" / "referencias" / "distrito_subprefeitura.csv"
+
+# Retângulo que envolve o município (Perus ao norte, Marsilac ao sul). É uma aproximação:
+# pontos de cidades vizinhas dentro do retângulo passam; o recorte exato exigiria o polígono.
+LIMITES_SP = {"lat": (-24.01, -23.35), "lon": (-46.83, -46.36)}
 
 # Comparados depois de normalizar (sem acento, minúsculo, espaços simples).
 SERVICOS_ESCOPO = {
@@ -58,6 +70,19 @@ SCHEMA = [
     "canal", "orgao", "logradouro", "lat", "lon", "distrito",
     "trimestre", "versao_bronze", "data_extracao",
 ]
+SCHEMA_CHAMADOS = SCHEMA + ["subprefeitura", "zona", "flag_finalizado_sem_data", "flag_sem_subprefeitura"]
+SCHEMA_REJEITADOS = SCHEMA_CHAMADOS + ["motivo"]
+
+# Ordem importa: o primeiro motivo que se aplicar é o que fica.
+REGRAS = [
+    ("data de abertura inválida", lambda df: df["data_abertura"].isna()),
+    ("finalização anterior à abertura", lambda df: df["data_finalizacao"] < df["data_abertura"]),
+    ("finalização no futuro", lambda df: df["data_finalizacao"] > df["data_extracao"]),
+    ("status inválido", lambda df: df["status"].isna()),
+    ("sem coordenada", lambda df: df["lat"].isna() | df["lon"].isna()),
+    ("fora do município", lambda df: ~(df["lat"].between(*LIMITES_SP["lat"])
+                                       & df["lon"].between(*LIMITES_SP["lon"]))),
+]
 
 log = logging.getLogger("silver")
 
@@ -93,6 +118,99 @@ def ler_trimestre(trimestre: str, bronze: Path = BRONZE) -> pd.DataFrame:
                     trimestre, sorted(fora_da_lista))
     bruto = pd.concat(blocos, ignore_index=True)
     return _transformar(bruto, manifesto)
+
+
+def anexar_subprefeitura(df: pd.DataFrame, referencia: Path = REFERENCIA_SUBPREFEITURA) -> pd.DataFrame:
+    """Acrescenta subprefeitura e zona pelo distrito. Distrito sem correspondência gera aviso."""
+    ref = pd.read_csv(referencia, dtype="string")
+    juntado = df.merge(ref, on="distrito", how="left", validate="many_to_one")
+    sem_par = juntado.loc[juntado["distrito"].notna() & juntado["subprefeitura"].isna(), "distrito"]
+    if not sem_par.empty:
+        log.warning("Distritos ausentes em %s (%d chamados ficam sem subprefeitura): %s",
+                    referencia.name, len(sem_par), sorted(sem_par.unique()))
+    return juntado
+
+
+def validar(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Separa (válidos, rejeitados). Espera as colunas de SCHEMA mais subprefeitura e zona."""
+    df = df.copy()
+    condicoes = [regra(df).fillna(False).to_numpy(dtype=bool) for _, regra in REGRAS]
+    motivo = np.select(condicoes, [nome for nome, _ in REGRAS], default="")
+    df["flag_finalizado_sem_data"] = df["status"].eq("finalizado").fillna(False).astype(bool) \
+        & df["data_finalizacao"].isna()
+    # Sem subprefeitura por qualquer motivo: distrito nulo ou ausente da referência.
+    df["flag_sem_subprefeitura"] = df["subprefeitura"].isna()
+
+    rejeitado = motivo != ""
+    validos = df.loc[~rejeitado, SCHEMA_CHAMADOS].reset_index(drop=True)
+    rejeitados = df.loc[rejeitado].assign(motivo=pd.Series(motivo[rejeitado], dtype="string").values)
+    return validos, rejeitados[SCHEMA_REJEITADOS].reset_index(drop=True)
+
+
+def gerar_silver(trimestres: list[str] | None = None, saida: Path = SILVER,
+                 bronze: Path = BRONZE) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Lê os trimestres (todos, por padrão), valida, anexa a subprefeitura e grava os dois Parquet."""
+    if trimestres is None:
+        trimestres = sorted(p.name.split("=")[1] for p in bronze.glob("trimestre=*"))
+    if not trimestres:
+        raise FileNotFoundError(f"Nenhum trimestre na bronze ({bronze}). Rode a ingestão antes.")
+    df = pd.concat([ler_trimestre(t, bronze=bronze) for t in trimestres], ignore_index=True)
+    validos, rejeitados = validar(anexar_subprefeitura(df))
+    manifesto = {
+        "gerado_em": datetime.now(timezone.utc).isoformat(),
+        "versoes_bronze": df.groupby("trimestre")["versao_bronze"].first().to_dict(),
+        "linhas_validas": len(validos),
+        "linhas_rejeitadas": len(rejeitados),
+        "rejeitados_por_motivo": rejeitados["motivo"].value_counts().to_dict(),
+    }
+    caminho_manifesto = saida / MANIFESTO
+    _gravar_atomico({saida / "chamados.parquet": validos, saida / "rejeitados.parquet": rejeitados},
+                    invalidar=caminho_manifesto)
+    # Por último: só existe manifesto quando os dois Parquet já são os desta geração.
+    temporario = caminho_manifesto.with_name(f".tmp_{MANIFESTO}")
+    temporario.write_text(json.dumps(manifesto, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporario.replace(caminho_manifesto)
+    log.info("Silver gravada em %s: %d válidos, %d rejeitados", saida, len(validos), len(rejeitados))
+    return validos, rejeitados
+
+
+def ler_silver(saida: Path = SILVER) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """Lê (válidos, rejeitados, manifesto) e recusa uma silver incompleta ou inconsistente."""
+    if not (saida / MANIFESTO).exists():
+        raise FileNotFoundError(f"{saida} sem {MANIFESTO}: silver não gerada ou geração interrompida.")
+    manifesto = ler_manifesto(saida)
+    validos = pd.read_parquet(saida / "chamados.parquet")
+    rejeitados = pd.read_parquet(saida / "rejeitados.parquet")
+    obtido = (len(validos), len(rejeitados))
+    esperado = (manifesto["linhas_validas"], manifesto["linhas_rejeitadas"])
+    if obtido != esperado:
+        raise ValueError(f"Silver inconsistente: Parquet com {obtido} linhas, manifesto diz {esperado}.")
+    return validos, rejeitados, manifesto
+
+
+def _gravar_atomico(tabelas: dict[Path, pd.DataFrame], invalidar: Path | None = None) -> None:
+    """Grava cada tabela num temporário na mesma pasta e só então renomeia para o nome final.
+
+    Os temporários são escritos antes de qualquer rename: se uma escrita falhar, nenhum arquivo
+    final é tocado. O rename dentro da mesma pasta é atômico, então quem lê nunca vê um Parquet
+    pela metade. `invalidar` (o manifesto) é apagado logo antes das trocas, para que um manifesto
+    antigo nunca descreva Parquet novos.
+    """
+    temporarios = {}
+    try:
+        for destino, tabela in tabelas.items():
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            temporario = destino.with_name(f".tmp_{destino.name}")
+            tabela.to_parquet(temporario, index=False)
+            temporarios[temporario] = destino
+        if invalidar is not None:
+            invalidar.unlink(missing_ok=True)
+        for temporario, destino in temporarios.items():
+            temporario.replace(destino)
+    except Exception:
+        for temporario in temporarios:
+            temporario.unlink(missing_ok=True)
+        raise
 
 
 # ----------------------------------------------------------------- regras por coluna
@@ -141,7 +259,8 @@ def _data_extracao(manifesto: dict) -> pd.Timestamp:
     datas = [pd.Timestamp(d) for d in candidatas if d]
     if not datas:
         raise ValueError(f"{manifesto['trimestre']}: manifesto sem datas para estimar a extração.")
-    return max(datas)
+    # as_unit("ns"): Timestamp de texto nasce em segundos, que o Parquet não guarda (voltaria em ms).
+    return max(datas).as_unit("ns")
 
 
 def _data(serie: pd.Series, formato: str, coluna: str, trimestre: str) -> pd.Series:
