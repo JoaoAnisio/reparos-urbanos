@@ -8,7 +8,8 @@ Regras:
 - validar separa válidos e rejeitados; o rejeitado guarda o PRIMEIRO motivo de REGRAS que se aplicar.
 - A subprefeitura vem da tabela de referência (seed) REFERENCIA_SUBPREFEITURA, pelo distrito.
 - Os válidos passam por geo.enriquecer antes de gravar: só acrescenta colunas (células, distrito
-  inferido e final, repetições) e recalcula a subprefeitura; não muda quem é rejeitado.
+  inferido e final, repetições); não muda quem é rejeitado. Depois, subprefeitura, zona e
+  flag_sem_subprefeitura são refeitas pelo distrito_final (reanexar_por_distrito_final).
 - gerar_silver grava chamados.parquet e rejeitados.parquet com escrita atômica, como a bronze,
   e o _manifest.json por último. Sem manifesto (ou com contagens diferentes) = silver incompleta.
 """
@@ -20,6 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src import geo
 from src.comum import MANIFESTO, ler_manifesto, normalizar
 from src.ingest import BRONZE, RAIZ, versao_vigente
 
@@ -127,7 +129,7 @@ def ler_trimestre(trimestre: str, bronze: Path = BRONZE) -> pd.DataFrame:
 
 def anexar_subprefeitura(df: pd.DataFrame, referencia: Path = REFERENCIA_SUBPREFEITURA,
                          coluna: str = "distrito") -> pd.DataFrame:
-    """Acrescenta subprefeitura e zona pela coluna de distrito indicada (o geo usa distrito_final).
+    """Acrescenta subprefeitura e zona pela coluna de distrito indicada (distrito ou distrito_final).
 
     Distrito sem correspondência gera aviso. O merge preserva a ordem das linhas, mas não o índice.
     """
@@ -137,6 +139,16 @@ def anexar_subprefeitura(df: pd.DataFrame, referencia: Path = REFERENCIA_SUBPREF
     if not sem_par.empty:
         log.warning("Distritos ausentes em %s (%d chamados ficam sem subprefeitura): %s",
                     referencia.name, len(sem_par), sorted(sem_par.unique()))
+    return juntado
+
+
+def reanexar_por_distrito_final(df: pd.DataFrame) -> pd.DataFrame:
+    """Troca subprefeitura, zona e flag_sem_subprefeitura (feitas pelo distrito informado) pelas do
+    distrito_final, para que os distritos inferidos também ganhem subprefeitura."""
+    antigas = ["subprefeitura", "zona", "flag_sem_subprefeitura"]
+    juntado = anexar_subprefeitura(df.drop(columns=antigas, errors="ignore"), coluna="distrito_final")
+    juntado.index = df.index  # o merge preserva a ordem das linhas, mas recria o índice
+    juntado["flag_sem_subprefeitura"] = juntado["subprefeitura"].isna()
     return juntado
 
 
@@ -159,17 +171,15 @@ def validar(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 def gerar_silver(trimestres: list[str] | None = None, saida: Path = SILVER,
                  bronze: Path = BRONZE) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Lê os trimestres (todos, por padrão), anexa a subprefeitura, valida, enriquece os válidos
-    com o geo e grava os dois Parquet. O geo só acrescenta colunas: não muda quem é rejeitado."""
-    # Import local: o geo usa anexar_subprefeitura deste módulo; no topo, seria um import circular.
-    from src import geo
-
+    com o geo, reanexa a subprefeitura pelo distrito_final e grava os dois Parquet.
+    O geo só acrescenta colunas: não muda quem é rejeitado."""
     if trimestres is None:
         trimestres = sorted(p.name.split("=")[1] for p in bronze.glob("trimestre=*"))
     if not trimestres:
         raise FileNotFoundError(f"Nenhum trimestre na bronze ({bronze}). Rode a ingestão antes.")
     df = pd.concat([ler_trimestre(t, bronze=bronze) for t in trimestres], ignore_index=True)
     validos, rejeitados = validar(anexar_subprefeitura(df))
-    validos = geo.enriquecer(validos)[SCHEMA_VALIDADO + geo.COLUNAS_GEO]
+    validos = reanexar_por_distrito_final(geo.enriquecer(validos))[SCHEMA_VALIDADO + geo.COLUNAS_GEO]
     manifesto = {
         "gerado_em": datetime.now(timezone.utc).isoformat(),
         "versoes_bronze": df.groupby("trimestre")["versao_bronze"].first().to_dict(),

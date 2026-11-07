@@ -99,7 +99,7 @@ def test_disco_cobre_o_raio_em_qualquer_direcao(raio):
             dlon = raio * math.sin(ang) / (111_320 * math.cos(math.radians(lat)))
             assert h3.latlng_to_cell(lat + dlat, lon + dlon, res) in disco
 
-def test_distrito_final_origem_e_subprefeitura():
+def test_distrito_final_e_origem():
     eleitores = [chamado(norte_m=i, distrito="REPUBLICA") for i in range(5)]
     inferido = chamado(norte_m=2, distrito=None)
     sem_votos = chamado(norte_m=20_000, distrito=None)
@@ -107,22 +107,23 @@ def test_distrito_final_origem_e_subprefeitura():
     informado, inf, sem = df.iloc[0], df.iloc[-2], df.iloc[-1]
 
     assert (informado["distrito_final"], informado["origem_distrito"]) == ("REPUBLICA", "informado")
+    assert pd.isna(informado["confianca_distrito"]) and pd.isna(informado["nivel_distrito"])
     assert (inf["distrito_final"], inf["origem_distrito"]) == ("REPUBLICA", "inferido")
-    assert pd.isna(sem["distrito_final"]) and pd.isna(sem["origem_distrito"])
-    # subprefeitura e zona saem do distrito_final: o inferido também ganha as duas
-    assert (inf["subprefeitura"], inf["zona"]) == ("SE", "Centro") and not inf["flag_sem_subprefeitura"]
-    assert pd.isna(sem["subprefeitura"]) and sem["flag_sem_subprefeitura"]
-
-
-def test_reanexa_por_cima_da_subprefeitura_da_silver():
-    df = tabela(*(chamado(norte_m=i, distrito="REPUBLICA") for i in range(3)), chamado(norte_m=1, distrito=None))
-    df["subprefeitura"], df["zona"] = pd.NA, pd.NA      # como vem da silver: o sem distrito não tem
-    resultado = enriquecer(df)
-    assert resultado["subprefeitura"].tolist() == ["SE"] * 4
-    assert list(resultado.columns).count("subprefeitura") == 1, "não pode duplicar a coluna no merge"
+    assert pd.isna(sem["distrito_final"]) and pd.isna(sem["origem_distrito"]) and sem["flag_sem_votos"]
+    # A subprefeitura é refeita na silver (reanexar_por_distrito_final), não no geo
+    assert "subprefeitura" not in df.columns
 
 
 def test_coordenada_nula_quebra_com_mensagem():
     df = tabela(chamado(), {**chamado(), "lat": None})
     with pytest.raises(AssertionError, match="silver validada"):
         adicionar_celulas(df)
+
+
+def test_divisa_entra_no_distrito_final_com_a_flag():
+    """Decisão: a melhor estimativa fica, com a confiança; quem usa decide se a aceita."""
+    eleitores = [chamado(norte_m=i, distrito="SE") for i in range(3)] + \
+                [chamado(norte_m=i, distrito="REPUBLICA") for i in range(2)]
+    alvo = enriquecer(tabela(*eleitores, chamado(norte_m=1, distrito=None))).iloc[-1]
+    assert alvo["flag_distrito_divisa"]
+    assert (alvo["distrito_final"], alvo["origem_distrito"]) == ("SE", "inferido")

@@ -8,6 +8,7 @@ import pandas as pd
 
 from src.silver import SILVER, gerar_silver
 
+
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 pd.set_option("display.width", 200)
 

@@ -10,7 +10,7 @@ import pytest
 
 from src.comum import MANIFESTO
 from src.silver import (REFERENCIA_SUBPREFEITURA, REGRAS, SCHEMA, _gravar_atomico, anexar_subprefeitura,
-                        ler_silver, validar)
+                        ler_silver, reanexar_por_distrito_final, validar)
 
 BASE = {
     "data_abertura": pd.Timestamp("2026-07-10"),
@@ -165,3 +165,20 @@ def test_ler_silver_tolera_manifesto_antigo_sem_versoes(tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger="silver"):
         validos, _, _ = ler_silver(silver, bronze=bronze)
     assert len(validos) == 3 and "2026T3" in caplog.text
+
+
+def test_reanexa_subprefeitura_pelo_distrito_final():
+    """O distrito inferido também ganha subprefeitura; a flag passa a medir o distrito_final."""
+    df = pd.DataFrame({
+        "distrito":       pd.array(["REPUBLICA", None, None], dtype="string"),
+        "distrito_final": pd.array(["REPUBLICA", "BUTANTA", None], dtype="string"),   # inferido, sem votos
+        "subprefeitura":  pd.array(["SE", None, None], dtype="string"),             # feita pelo distrito informado
+        "zona":           pd.array(["Centro", None, None], dtype="string"),
+        "flag_sem_subprefeitura": [False, True, True],
+    }, index=[10, 20, 30])
+    resultado = reanexar_por_distrito_final(df)
+    assert resultado.index.tolist() == [10, 20, 30], "o índice original precisa voltar"
+    assert resultado["subprefeitura"].tolist()[:2] == ["SE", "BUTANTA"]
+    assert resultado["zona"].tolist()[:2] == ["Centro", "Oeste"]
+    assert resultado["flag_sem_subprefeitura"].tolist() == [False, False, True]
+    assert list(resultado.columns).count("subprefeitura") == 1, "não pode duplicar a coluna no merge"

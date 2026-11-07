@@ -6,7 +6,10 @@ Regras (análise em notebooks/02_exploracao.ipynb):
 - Distrito nulo é inferido por votação: o distrito mais comum entre os chamados COM distrito nas
   células de NIVEIS_VOTACAO, em ordem, até haver votos. A confiança é a proporção do vencedor.
 - distrito_final = informado ou, na falta dele, inferido (origem_distrito diz qual). Subprefeitura
-  e zona são reanexadas por ele, e não pelo distrito informado.
+  e zona são reanexadas por ele no gerar_silver, e não aqui: o geo não depende da silver.
+- Decisão: a divisa (confiança < CONFIANCA_MINIMA) também entra no distrito_final, com a flag.
+  Regra geral: não jogar informação fora; guardar a melhor estimativa junto com a medida de
+  confiança (confianca_distrito, flag_distrito_divisa) e deixar cada uso decidir se a aceita.
 - Repetição: outro chamado na mesma rua, a até LIMITE_REPETICAO_M e aberto a até
   JANELA_REPETICAO_DIAS. A flag marca os dois lados do par; não decide qual descartar.
 
@@ -26,12 +29,11 @@ import numpy as np
 import pandas as pd
 
 from src.comum import normalizar
-from src.silver import anexar_subprefeitura
 
 RESOLUCOES = (8, 10)
 
-# Colunas que o enriquecer acrescenta (a silver grava SCHEMA_VALIDADO + COLUNAS_GEO). Subprefeitura,
-# zona e flag_sem_subprefeitura já existem na silver; o geo as recalcula pelo distrito_final.
+# Colunas que o enriquecer acrescenta. Subprefeitura, zona e flag_sem_subprefeitura não estão aqui:
+# a silver as reanexa pelo distrito_final depois do enriquecer.
 COLUNAS_GEO = [
     "celula_r8", "celula_r10",
     "distrito_inferido", "confianca_distrito", "nivel_distrito", "flag_distrito_divisa", "flag_sem_votos",
@@ -59,10 +61,9 @@ RAIO_TERRA_M = 6_371_000
 
 # ----------------------------------------------------------------- funções públicas
 def enriquecer(chamados: pd.DataFrame) -> pd.DataFrame:
-    """Aplica células, distrito inferido e final, subprefeitura e repetições. Não altera a entrada."""
+    """Aplica células, distrito inferido e final, e repetições. Não altera a entrada."""
     df = adicionar_celulas(chamados)
     df = inferir_distrito(df)
-    df = consolidar_distrito(df)
     return marcar_repeticoes(df)
 
 
@@ -76,7 +77,11 @@ def adicionar_celulas(chamados: pd.DataFrame) -> pd.DataFrame:
 
 
 def inferir_distrito(df: pd.DataFrame) -> pd.DataFrame:
-    """Preenche distrito_inferido, confianca_distrito e nivel_distrito para quem não tem distrito."""
+    """Preenche distrito_inferido, confianca_distrito e nivel_distrito para quem não tem distrito
+    (nulos para os informados) e monta distrito_final e origem_distrito.
+
+    Os sem votos ficam com distrito_final e origem_distrito nulos.
+    """
     df = df.copy()
     eleitores = df[df["distrito"].notna()]
     alvos = df[df["distrito"].isna()]
@@ -95,23 +100,12 @@ def inferir_distrito(df: pd.DataFrame) -> pd.DataFrame:
     sem_distrito = df["distrito"].isna()
     df["flag_sem_votos"] = sem_distrito & df["distrito_inferido"].isna()  # provável erro de geocodificação
     df["flag_distrito_divisa"] = (df["confianca_distrito"] < CONFIANCA_MINIMA).fillna(False).astype(bool)
-    return df
 
-
-def consolidar_distrito(df: pd.DataFrame) -> pd.DataFrame:
-    """distrito_final e origem_distrito ("informado" / "inferido"; nula se nenhum dos dois), e
-    subprefeitura, zona e flag_sem_subprefeitura recalculadas a partir do distrito_final."""
-    df = df.copy()
     df["distrito_final"] = df["distrito"].fillna(df["distrito_inferido"])
-    df["origem_distrito"] = pd.Series(pd.NA, index=df.index, dtype="string")
-    df.loc[df["distrito"].notna(), "origem_distrito"] = "informado"
-    df.loc[df["distrito"].isna() & df["distrito_inferido"].notna(), "origem_distrito"] = "inferido"
-
-    juntado = anexar_subprefeitura(df.drop(columns=["subprefeitura", "zona"], errors="ignore"),
-                                   coluna="distrito_final")
-    juntado.index = df.index  # o merge preserva a ordem, mas recria o índice
-    juntado["flag_sem_subprefeitura"] = juntado["subprefeitura"].isna()
-    return juntado
+    df["origem_distrito"] = pd.Series(np.select(
+        [df["distrito"].notna(), df["distrito_inferido"].notna()], ["informado", "inferido"], default=None),
+        index=df.index, dtype="string")
+    return df
 
 
 def marcar_repeticoes(df: pd.DataFrame) -> pd.DataFrame:
