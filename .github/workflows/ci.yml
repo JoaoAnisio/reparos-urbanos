@@ -1,0 +1,27 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      # Sem data/ no repositório: os testes de dados reais (test_silver, a execução do painel) são
+      # pulados pelo skipif; os sintéticos (validação, geo, consolidação, previsão) rodam sempre.
+      - name: Testes
+        run: python -m pytest -q -rs
+
+      # Confere que o projeto dbt compila (sintaxe, refs, vars) sem precisar dos dados.
+      - name: dbt parse
+        working-directory: dbt_reparos
+        run: dbt parse --profiles-dir .
