@@ -4,13 +4,33 @@ Uso:  python -m scripts.gerar_silver
 """
 import logging
 
+import numpy as np
 import pandas as pd
 
+from src.consolidacao import tabela_ocorrencias
 from src.silver import SILVER, gerar_silver
 
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 pd.set_option("display.width", 200)
+
+
+def resumir_ocorrencias(validos: pd.DataFrame) -> None:
+    """Chamados × ocorrências, e ocorrências por tamanho, situação e reincidência."""
+    ocorrencias = tabela_ocorrencias(validos)
+    reincidencia = validos.groupby("id_ocorrencia")["numero_reincidencia"].first()
+    soma = int(ocorrencias["qtd_chamados"].sum())
+    assert soma == len(validos), f"soma de chamados por ocorrência ({soma:,}) != válidos ({len(validos):,})"
+
+    print(f"\nChamados: {len(validos):,} | Ocorrências: {len(ocorrencias):,} | "
+          f"{len(validos) / len(ocorrencias):.2f} chamados por ocorrência | soma confere: {soma:,}")
+    tamanho = pd.cut(ocorrencias["qtd_chamados"], [0, 1, 2, 5, np.inf], labels=["1", "2", "3–5", "6+"])
+    tabela = pd.DataFrame({"ocorrências": tamanho.value_counts(sort=False),
+                           "chamados": ocorrencias["qtd_chamados"].groupby(tamanho, observed=False).sum()})
+    print("Ocorrências por número de chamados:")
+    print(tabela.to_string())
+    print("Ocorrências por situação:", ocorrencias["situacao"].value_counts().to_dict())
+    print("Ocorrências por numero_reincidencia:", reincidencia.value_counts().sort_index().to_dict())
 
 
 def executar() -> None:
@@ -36,6 +56,8 @@ def executar() -> None:
     print(f"Válidos sem subprefeitura: {int(sem_sub.sum()):,} "
           f"(sem distrito_final: {int((sem_sub & validos['distrito_final'].isna()).sum()):,}, "
           f"distrito_final fora da referência: {int((sem_sub & validos['distrito_final'].notna()).sum()):,})")
+
+    resumir_ocorrencias(validos)
 
     print("\nTipos depois de ler o Parquet de volta:")
     for nome, original in [("chamados", validos), ("rejeitados", rejeitados)]:

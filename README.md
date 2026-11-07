@@ -51,3 +51,29 @@ válidos, com a flag.
 
 **A data de extração é estimada.** O arquivo não informa quando foi gerado; `data_extracao` é a
 maior data de abertura ou finalização presente nele, um limite inferior da data real.
+
+## Casos verificados
+
+### Rua Anoriaçu (consolidação em ocorrências)
+
+Teste de mesa da regra de ligação (`src/consolidacao.py`): a previsão foi escrita antes de rodar,
+sobre a caixa lat −23,4610 a −23,4590 e lon −46,5725 a −46,5705.
+
+| | Previsão | Resultado |
+|---|---|---|
+| Ocorrências na caixa | 3 a 6, quase todas na Rua Anoriaçu | **13**, em 4 ruas (427 chamados) |
+| Ocorrências grandes | 1 ou 2, com dezenas de chamados | **1 com 361 chamados** (189 abertos), mais 33, 12 e 11 |
+| Extensão da maior | abaixo de 100 m | **164 m** |
+| Reincidência máxima | 1 a 3 | **4** |
+
+O que a previsão não antecipou: a maior ocorrência junta 4 pontos da mesma rua, dois deles com
+214 e 132 chamados (96% pelo aplicativo, em rajadas de 70 a 122 por mês) a cerca de 72 m um do
+outro. Eles se ligam diretamente, e dois pontos menores ao sul entram em cadeia, por isso a
+extensão passa do limite de 80 m. É o efeito da regra (b): enquanto há chamado aberto no ponto,
+toda reclamação nova a até 80 m na mesma rua entra na mesma ocorrência. Se os dois focos são o
+mesmo trecho estragado ou dois buracos vizinhos, os dados não dizem.
+
+Na cidade toda, o encadeamento é limitado: o p99 da extensão por ocorrência é 166 m (242 m entre
+as ocorrências com 2 ou mais chamados), abaixo do corte de 300 m combinado para criar a
+`flag_ocorrencia_extensa`. A cauda existe (160 ocorrências passam de 300 m, somando 4.966
+chamados), e as cinco maiores estão todas abertas.

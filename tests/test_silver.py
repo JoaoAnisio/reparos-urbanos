@@ -119,3 +119,14 @@ def test_silver_gravada_inclui_o_geo_e_seus_parametros():
     # Só o distrito_final sem valor fica sem subprefeitura; o inferido ganha subprefeitura
     assert (validos["flag_sem_subprefeitura"] == validos["distrito_final"].isna()).all()
     assert validos.loc[validos["origem_distrito"] == "inferido", "subprefeitura"].notna().all()
+
+
+def test_ocorrencias_somam_os_validos():
+    """Cada válido está em exatamente uma ocorrência, e qtd_chamados_ocorrencia conta os seus chamados."""
+    if not (SILVER / "chamados.parquet").exists():
+        pytest.skip("silver ainda não gerada: rode python -m scripts.gerar_silver")
+    validos, _, _ = ler_silver()
+    assert validos["id_ocorrencia"].notna().all()
+    por_ocorrencia = validos.groupby("id_ocorrencia")["qtd_chamados_ocorrencia"].agg(["first", "size"])
+    assert (por_ocorrencia["first"] == por_ocorrencia["size"]).all()
+    assert por_ocorrencia["first"].sum() == len(validos) == 244_426
