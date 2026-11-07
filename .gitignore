@@ -20,3 +20,9 @@ data/raw/*
 .DS_Store
 .vscode/
 .env
+
+# dbt (gerados ao rodar; o banco fica em data/gold/, já ignorado)
+dbt_reparos/target/
+dbt_reparos/dbt_packages/
+dbt_reparos/logs/
+dbt_reparos/.user.yml

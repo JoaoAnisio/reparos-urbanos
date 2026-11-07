@@ -1,0 +1,96 @@
+version: 2
+
+models:
+  - name: dim_tempo
+    description: Um dia por linha, da primeira abertura até 120 dias depois da última extração.
+    columns:
+      - name: data
+        data_tests: [unique, not_null]
+
+  - name: dim_local
+    description: Distrito -> subprefeitura -> zona (seed distrito_subprefeitura).
+    columns:
+      - name: distrito
+        data_tests: [unique, not_null]
+      - name: subprefeitura
+        data_tests: [not_null]
+      - name: zona
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Centro, Norte, Sul, Leste, Oeste]
+
+  - name: dim_status
+    columns:
+      - name: status_original
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [aberto, finalizado, cancelado]
+
+  - name: dim_canal
+    columns:
+      - name: canal
+        data_tests: [unique, not_null]
+
+  - name: fato_chamado
+    description: Grão de 1 chamado.
+    columns:
+      - name: id_chamado
+        data_tests: [unique, not_null]
+      - name: data_abertura
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_tempo'), field: data}
+      - name: data_finalizacao
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_tempo'), field: data}
+      - name: distrito_final
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_local'), field: distrito}
+      - name: status_original
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_status'), field: status_original}
+      - name: canal
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_canal'), field: canal}
+      - name: id_ocorrencia
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('fato_ocorrencia'), field: id_ocorrencia}
+
+  - name: fato_ocorrencia
+    description: Grão de 1 problema físico (componente conexo de chamados ligados).
+    columns:
+      - name: id_ocorrencia
+        data_tests: [unique, not_null]
+      - name: inicio
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_tempo'), field: data}
+      - name: fim
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_tempo'), field: data}
+      - name: distrito_final
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_local'), field: distrito}
+      - name: situacao
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [aberta, resolvida, cancelada]

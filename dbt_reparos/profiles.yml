@@ -1,0 +1,7 @@
+reparos:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../data/gold/reparos.duckdb
+      threads: 4

@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: silver
+    description: Saída de src/silver.py (python -m scripts.gerar_silver). Só os chamados válidos.
+    meta:
+      external_location: "read_parquet('../data/silver/{name}.parquet')"
+    tables:
+      - name: chamados
+        description: Um chamado de tapa-buraco por linha, validado e enriquecido (geo e consolidação).

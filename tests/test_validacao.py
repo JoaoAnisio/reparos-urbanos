@@ -182,3 +182,10 @@ def test_reanexa_subprefeitura_pelo_distrito_final():
     assert resultado["zona"].tolist()[:2] == ["Centro", "Oeste"]
     assert resultado["flag_sem_subprefeitura"].tolist() == [False, False, True]
     assert list(resultado.columns).count("subprefeitura") == 1, "não pode duplicar a coluna no merge"
+
+
+def test_seed_do_dbt_e_igual_a_referencia_da_silver():
+    """O seed é uma cópia: se só um dos dois for atualizado, silver e gold usam divisões diferentes."""
+    seed = REFERENCIA_SUBPREFEITURA.parents[2] / "dbt_reparos" / "seeds" / "distrito_subprefeitura.csv"
+    assert seed.read_bytes() == REFERENCIA_SUBPREFEITURA.read_bytes(), \
+        "copie src/referencias/distrito_subprefeitura.csv para dbt_reparos/seeds/ e rode dbt seed"

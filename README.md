@@ -2,12 +2,15 @@
 
 Pipeline de dados sobre os chamados de tapa-buraco abertos no SP156, o canal de atendimento da
 Prefeitura de São Paulo. Os dados vêm do portal de dados abertos da prefeitura (licença CC0) e
-passam por duas camadas:
+passam por três camadas:
 
 - **Bronze** (`src/ingestao.py`): cópia fiel de cada arquivo trimestral, versionada e com manifesto.
 - **Silver** (`src/silver.py`, `src/geo.py`): só os chamados de tapa-buraco, com tipos corrigidos,
   validação (rejeitados vão para uma tabela própria, com o motivo), subprefeitura e zona por uma
-  tabela de referência, e enriquecimento geográfico com H3 (distrito inferido, repetições).
+  tabela de referência, enriquecimento geográfico com H3 (distrito inferido, repetições) e
+  consolidação em ocorrências (`src/consolidacao.py`).
+- **Gold** (`dbt_reparos/`): modelo estrela num arquivo DuckDB (`data/gold/reparos.duckdb`),
+  construído pelo dbt a partir da silver, com testes de dados a cada carga.
 
 ## Como rodar
 
@@ -22,7 +25,50 @@ uv pip install -r requirements.txt
 python -m scripts.ingerir_todos    # bronze
 python -m scripts.gerar_silver     # silver: data/silver/chamados.parquet e rejeitados.parquet
 pytest -q                          # sem bronze, os testes de dados reais são pulados
+
+# Gold (o DuckDB não cria a pasta do banco). O dbt roda de dentro de dbt_reparos/,
+# porque os caminhos do profile e da fonte são relativos a ela.
+mkdir -p data/gold
+cd dbt_reparos
+dbt seed --profiles-dir .
+dbt build --profiles-dir .         # modelos + testes de dados
+dbt docs generate --profiles-dir . && dbt docs serve --profiles-dir .
 ```
+
+## Gold: modelo estrela
+
+| Tabela | Grão | Conteúdo |
+|---|---|---|
+| `core.fato_chamado` | 1 chamado | chaves das dimensões, `id_ocorrencia`, `tempo_resolucao_dias`, flags, `celula_r8` e coordenadas com 3 casas |
+| `core.fato_ocorrencia` | 1 problema físico | início, fim, situação, chamados, reincidência, extensão, `dias_em_aberto` |
+| `core.dim_tempo` | 1 dia | ano, mês, trimestre, dia da semana, `flag_periodo_chuvoso` (dezembro a março) |
+| `core.dim_local` | 1 distrito | subprefeitura e zona (seed, cópia de `src/referencias/`) |
+| `core.dim_status`, `core.dim_canal` | 1 valor | valores distintos da staging |
+
+A gold não guarda coordenada exata nem a célula r10: só lat/lon com 3 casas (~110 m) e a célula
+r8. O teste `assert_sem_dado_pessoal` falha se surgir em core ou marts uma coluna com nome de dado
+pessoal (número, CEP, protocolo, CPF, e-mail, telefone).
+
+Linhagem (extraída do `manifest.json` do dbt; o print do `dbt docs serve` fica em
+`docs/linhagem_dbt.png`):
+
+```mermaid
+graph LR
+    silver[(silver.chamados)] --> stg_chamados
+    stg_chamados --> dim_tempo
+    stg_chamados --> dim_status
+    stg_chamados --> dim_canal
+    stg_chamados --> fato_chamado
+    stg_chamados --> fato_ocorrencia
+    seed[(distrito_subprefeitura)] --> dim_local
+```
+
+Duas observações de uso:
+
+- `staging.stg_chamados` é uma view que lê `../data/silver/` por caminho relativo: ela só abre com o
+  banco aberto de dentro de `dbt_reparos/`. As tabelas de `core` são materializadas e abrem de
+  qualquer lugar.
+- O seed é uma cópia da referência da silver; um teste do pytest falha se as duas divergirem.
 
 ## Limitações
 

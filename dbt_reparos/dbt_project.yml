@@ -1,0 +1,39 @@
+name: reparos
+version: "1.0.0"
+config-version: 2
+profile: reparos
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  reparos:
+    staging:
+      +materialized: view
+      +schema: staging
+    core:
+      +materialized: table
+      +schema: core
+    marts:
+      +materialized: table
+      +schema: marts
+
+seeds:
+  reparos:
+    +schema: core
+    distrito_subprefeitura:
+      +column_types:
+        distrito: varchar
+        subprefeitura: varchar
+        zona: varchar
+
+# Pesos do score de prioridade (Etapa 7). Ficam nulos até serem calibrados lá.
+vars:
+  peso_qtd_chamados: null
+  peso_reincidencia: null
+  peso_dias_em_aberto: null
+  peso_corredor: null
