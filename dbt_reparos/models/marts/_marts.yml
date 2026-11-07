@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: mart_fila_prioridade
+    description: Ocorrências abertas ordenadas pelo score de prioridade (0 a 10).
+    columns:
+      - name: posicao_fila
+        data_tests: [unique, not_null]
+      - name: id_ocorrencia
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments: {to: ref('fato_ocorrencia'), field: id_ocorrencia}
+      - name: score
+        data_tests: [not_null]
+      - name: flag_verificar_em_campo
+        data_tests: [not_null]
+
+  - name: mart_kpis_mensal
+    description: Por mês de abertura e zona.
+    columns:
+      - name: mes
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_tempo'), field: data}
+      - name: zona
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [Centro, Norte, Sul, Leste, Oeste, Sem zona]
+
+  - name: mart_mapa_calor
+    description: Por célula H3 r8, últimos 12 meses, só células com 3 ou mais chamados.
+    columns:
+      - name: celula_r8
+        data_tests: [unique, not_null]
+
+  - name: mart_equidade
+    description: Por subprefeitura.
+    columns:
+      - name: subprefeitura
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_local'), field: subprefeitura}

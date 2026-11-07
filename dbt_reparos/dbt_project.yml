@@ -31,9 +31,17 @@ seeds:
         subprefeitura: varchar
         zona: varchar
 
-# Pesos do score de prioridade (Etapa 7). Ficam nulos até serem calibrados lá.
 vars:
-  peso_qtd_chamados: null
-  peso_reincidencia: null
-  peso_dias_em_aberto: null
-  peso_corredor: null
+  # Score de prioridade (mart_fila_prioridade) = 10 x soma ponderada dos componentes (0 a 1).
+  # Os pesos precisam somar 1 (teste assert_pesos_somam_1).
+  peso_espera: 0.30
+  peso_via: 0.25
+  peso_demanda: 0.15
+  peso_reincidencia: 0.15
+  peso_equidade: 0.15
+  # Tetos de normalização: a partir deles o componente vale 1.
+  teto_espera_dias: 30            # espera = dias_em_aberto / 30
+  teto_demanda_chamados: 10       # demanda = ln(1 + qtd_chamados) / ln(1 + 10)
+  teto_reincidencia: 3            # reincidência = numero_reincidencia / 3
+  # Abertas há mais que isso têm status possivelmente desatualizado: confirmar em campo.
+  dias_verificar_em_campo: 180
