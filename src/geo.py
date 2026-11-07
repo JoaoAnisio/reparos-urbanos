@@ -54,6 +54,8 @@ CONFIANCA_MINIMA = 0.8
 LIMITE_REPETICAO_M = 80
 JANELA_REPETICAO_DIAS = 7
 RESOLUCAO_REPETICAO = 10
+# dist_vizinho_m registra vizinhos até aqui (um pouco além do limite), para análise.
+RAIO_VIZINHO_M = 120
 MARGEM_RAIO = 1.25  # o tamanho real das células varia em torno da média
 
 RAIO_TERRA_M = 6_371_000
@@ -110,24 +112,35 @@ def inferir_distrito(df: pd.DataFrame) -> pd.DataFrame:
 
 def marcar_repeticoes(df: pd.DataFrame) -> pd.DataFrame:
     """dist_vizinho_m: distância ao chamado mais próximo na mesma rua em ±JANELA_REPETICAO_DIAS
-    (nula se não houver nenhum no alcance da busca). flag_repeticao: esse vizinho está a até
+    (nula se não houver nenhum a até RAIO_VIZINHO_M). flag_repeticao: esse vizinho está a até
     LIMITE_REPETICAO_M."""
     df = df.copy()
+    pares = pares_candidatos(df, RAIO_VIZINHO_M)
+    dias = (df.loc[pares["id"], "data_abertura"].values - df.loc[pares["id_viz"], "data_abertura"].values)
+    pares = pares[np.abs(dias) <= np.timedelta64(JANELA_REPETICAO_DIAS, "D")]
+
+    df["dist_vizinho_m"] = pares.groupby("id")["dist"].min().reindex(df.index).astype("float64")
+    df["flag_repeticao"] = (df["dist_vizinho_m"] <= LIMITE_REPETICAO_M).fillna(False).astype(bool)
+    return df
+
+
+def pares_candidatos(df: pd.DataFrame, raio_m: float) -> pd.DataFrame:
+    """Pares (id, id_viz, dist) de chamados na mesma rua a até raio_m, sem filtro de dias.
+
+    Os dois sentidos aparecem (a, b) e (b, a); nunca (a, a). Chamado sem logradouro não forma par.
+    Espera celula_r{RESOLUCAO_REPETICAO} (adicionar_celulas) e um índice sem repetição.
+    """
     coluna = f"celula_r{RESOLUCAO_REPETICAO}"
-    k = k_para_raio(LIMITE_REPETICAO_M, RESOLUCAO_REPETICAO)
-    base = df.loc[df["logradouro"].notna(), ["lat", "lon", "data_abertura", "logradouro", coluna]].copy()
+    k = k_para_raio(raio_m, RESOLUCAO_REPETICAO)
+    base = df.loc[df["logradouro"].notna(), ["lat", "lon", "logradouro", coluna]].copy()
     base["rua"] = base["logradouro"].map({v: normalizar(v) for v in base["logradouro"].unique()})
     base["id"] = base.index
 
     busca = base.assign(celula_busca=base[coluna].map(lambda c: list(h3.grid_disk(c, k)))).explode("celula_busca")
     pares = busca.merge(base, left_on=["celula_busca", "rua"], right_on=[coluna, "rua"], suffixes=("", "_viz"))
-    dias = (pares["data_abertura"] - pares["data_abertura_viz"]).abs().dt.days
-    pares = pares[(pares["id"] != pares["id_viz"]) & (dias <= JANELA_REPETICAO_DIAS)]
-    distancia = distancia_m(pares["lat"], pares["lon"], pares["lat_viz"], pares["lon_viz"])
-
-    df["dist_vizinho_m"] = distancia.groupby(pares["id"]).min().reindex(df.index).astype("float64")
-    df["flag_repeticao"] = (df["dist_vizinho_m"] <= LIMITE_REPETICAO_M).fillna(False).astype(bool)
-    return df
+    pares = pares[pares["id"] != pares["id_viz"]]
+    pares = pares.assign(dist=distancia_m(pares["lat"], pares["lon"], pares["lat_viz"], pares["lon_viz"]))
+    return pares.loc[pares["dist"] <= raio_m, ["id", "id_viz", "dist"]].reset_index(drop=True)
 
 
 def distancia_m(lat1, lon1, lat2, lon2):

@@ -10,6 +10,8 @@ Regras:
 - Os válidos passam por geo.enriquecer antes de gravar: só acrescenta colunas (células, distrito
   inferido e final, repetições); não muda quem é rejeitado. Depois, subprefeitura, zona e
   flag_sem_subprefeitura são refeitas pelo distrito_final (reanexar_por_distrito_final).
+- Por fim, consolidacao.consolidar agrupa os chamados em ocorrências (id_ocorrencia) e numera
+  as reincidências. Também só acrescenta colunas.
 - gerar_silver grava chamados.parquet e rejeitados.parquet com escrita atômica, como a bronze,
   e o _manifest.json por último. Sem manifesto (ou com contagens diferentes) = silver incompleta.
 """
@@ -21,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src import geo
+from src import consolidacao, geo
 from src.comum import MANIFESTO, ler_manifesto, normalizar
 from src.ingestao import BRONZE, RAIZ, versao_vigente
 
@@ -179,7 +181,8 @@ def gerar_silver(trimestres: list[str] | None = None, saida: Path = SILVER,
         raise FileNotFoundError(f"Nenhum trimestre na bronze ({bronze}). Rode a ingestão antes.")
     df = pd.concat([ler_trimestre(t, bronze=bronze) for t in trimestres], ignore_index=True)
     validos, rejeitados = validar(anexar_subprefeitura(df))
-    validos = reanexar_por_distrito_final(geo.enriquecer(validos))[ESQUEMA_VALIDADO + geo.COLUNAS_GEO]
+    validos = reanexar_por_distrito_final(geo.enriquecer(validos))
+    validos = consolidacao.consolidar(validos)[ESQUEMA_VALIDADO + geo.COLUNAS_GEO + consolidacao.COLUNAS_CONSOLIDACAO]
     manifesto = {
         "gerado_em": datetime.now(timezone.utc).isoformat(),
         "versoes_bronze": df.groupby("trimestre")["versao_bronze"].first().to_dict(),
@@ -191,6 +194,7 @@ def gerar_silver(trimestres: list[str] | None = None, saida: Path = SILVER,
             "janela_repeticao_dias": geo.JANELA_REPETICAO_DIAS,
             "niveis_votacao": geo.NIVEIS_VOTACAO,
             "confianca_minima": geo.CONFIANCA_MINIMA,
+            "ligacao_max_dias": consolidacao.LIGACAO_MAX_DIAS,
         },
     }
     caminho_manifesto = saida / MANIFESTO
