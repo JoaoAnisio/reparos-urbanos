@@ -7,8 +7,10 @@ with referencia as (
 ),
 
 chamados as (
-    select c.celula_r8
-    from {{ ref('fato_chamado') }} as c, referencia as r
+    select c.celula_r8, coalesce(l.zona, 'Sem zona') as zona
+    from {{ ref('fato_chamado') }} as c
+    cross join referencia as r
+    left join {{ ref('dim_local') }} as l on l.distrito = c.distrito_final
     where c.data_abertura > r.ultima_extracao - interval 12 month
 ),
 
@@ -20,8 +22,9 @@ abertas as (
 ),
 
 por_celula as (
-    select celula_r8, count(*) as chamados
-    from chamados
+    -- zona mais frequente da célula (desempate alfabético), para o filtro do painel
+    select celula_r8, count(*) as chamados, first(zona order by n_zona desc, zona) as zona
+    from (select *, count(*) over (partition by celula_r8, zona) as n_zona from chamados)
     group by celula_r8
     having count(*) >= 3
 )
@@ -29,6 +32,7 @@ por_celula as (
 select
     p.celula_r8,
     p.chamados,
+    p.zona,
     coalesce(a.ocorrencias_abertas, 0)                  as ocorrencias_abertas,
     round(a.score_medio_abertas, 2)                     as score_medio_abertas
 from por_celula as p

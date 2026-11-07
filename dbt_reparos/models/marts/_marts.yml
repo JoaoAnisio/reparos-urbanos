@@ -47,3 +47,27 @@ models:
           - not_null
           - relationships:
               arguments: {to: ref('dim_local'), field: subprefeitura}
+
+  - name: mart_indicadores
+    description: Indicadores do painel por zona e corredor, com totais ('Todas', 'todos').
+    columns:
+      - name: zona
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [Todas, Centro, Norte, Sul, Leste, Oeste, Sem zona]
+      - name: corredor
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [todos, sim, não]
+
+  - name: mart_serie_mensal
+    description: Chamados por mês de abertura, zona e corredor.
+    columns:
+      - name: mes
+        data_tests: [not_null]
+      - name: chamados
+        data_tests: [not_null]

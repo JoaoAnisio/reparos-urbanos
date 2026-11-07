@@ -17,6 +17,8 @@
 -- depends_on: {{ ref('mart_kpis_mensal') }}
 -- depends_on: {{ ref('mart_mapa_calor') }}
 -- depends_on: {{ ref('mart_equidade') }}
+-- depends_on: {{ ref('mart_indicadores') }}
+-- depends_on: {{ ref('mart_serie_mensal') }}
 
 select table_schema, table_name, column_name
 from information_schema.columns
