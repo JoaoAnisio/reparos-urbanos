@@ -1,5 +1,5 @@
 from pathlib import Path
-from src.ingest import RAIZ, ingerir
+from src.ingestao import RAIZ, ingerir
 import logging
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")

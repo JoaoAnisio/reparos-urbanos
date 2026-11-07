@@ -35,7 +35,7 @@ def pares_proximos(chamados: pd.DataFrame) -> pd.DataFrame:
     return pares.assign(mesma_rua=pares["rua"] == pares["rua_viz"])
 
 
-def main() -> None:
+def executar() -> None:
     chamados, _, _ = ler_silver()
     pares = pares_proximos(chamados)
     diferentes = pares[~pares["mesma_rua"]]
@@ -55,4 +55,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    executar()

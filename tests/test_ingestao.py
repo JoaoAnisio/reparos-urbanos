@@ -1,6 +1,6 @@
 """Roda os 6 testes da ingestão numa bronze TEMPORÁRIA (não toca em data/bronze).
 
-Uso:  python -m tests.test_ingest data/raw/arquivo-final-3-trim-26.csv
+Uso:  python -m tests.test_ingestao data/raw/arquivo-final-3-trim-26.csv
 
 
 As variações (republicação, trimestre misturado, outro trimestre) são geradas
@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from src.ingest import ingerir, versao_vigente  # noqa: E402
+from src.ingestao import ingerir, versao_vigente  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="   [%(levelname)s] %(message)s")
 DATA_NO_INICIO = re.compile(r'^("?)(\d{2})/(\d{2})/(\d{4})')
@@ -23,29 +23,29 @@ def trocar_mes(linha: str, mes: str) -> str:
     return DATA_NO_INICIO.sub(lambda m: f"{m[1]}{mes}/{m[3]}/{m[4]}", linha, count=1)
 
 
-def main(original: Path) -> None:
+def executar(original: Path) -> None:
     # A pasta temporária (com várias cópias do CSV) é apagada ao sair do with, mesmo se algo falhar.
     with tempfile.TemporaryDirectory(prefix="teste_ingestao_") as pasta:
         _rodar_cenarios(original, Path(pasta))
 
 
-def _rodar_cenarios(original: Path, tmp: Path) -> None:
-    bronze = tmp / "bronze"
+def _rodar_cenarios(original: Path, temporaria: Path) -> None:
+    bronze = temporaria / "bronze"
     linhas = original.read_text(encoding="utf-8").splitlines(keepends=True)
     cabecalho, dados = linhas[0], linhas[1:]
     ano = DATA_NO_INICIO.match(dados[0])[4]
 
     # v2 = republicação: o portal acrescenta um chamado (como os "rascunhos" do glossário)
-    v2 = tmp / "v2" / original.name
+    v2 = temporaria / "v2" / original.name
     v2.parent.mkdir()
     v2.write_text("".join(linhas) + dados[-1], encoding="utf-8")
 
-    misto = tmp / "misto.csv"
+    misto = temporaria / "misto.csv"
     misto.write_text(cabecalho + trocar_mes(dados[0], "04") + "".join(dados[1:]), encoding="utf-8")
 
     # Amostra espalhada pelo arquivo: precisa de dias > 12, senão mm/dd e dd/mm ficam ambíguos.
     # Mês 05 (e não 04) porque a amostra tem dia 31, que não existe em abril.
-    outro_tri = tmp / "outro_trimestre.csv"
+    outro_tri = temporaria / "outro_trimestre.csv"
     outro_tri.write_text(cabecalho + "".join(trocar_mes(l, "05") for l in dados[::100]), encoding="utf-8")
 
     def rodar(nome, arquivo, esperado):
@@ -78,5 +78,5 @@ def _trimestre(linha: str) -> str:
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        sys.exit("Uso: python test_ingest.py caminho/do/arquivo.csv")
-    main(Path(sys.argv[1]))
+        sys.exit("Uso: python -m tests.test_ingestao caminho/do/arquivo.csv")
+    executar(Path(sys.argv[1]))

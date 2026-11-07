@@ -23,7 +23,7 @@ import pandas as pd
 
 from src import geo
 from src.comum import MANIFESTO, ler_manifesto, normalizar
-from src.ingest import BRONZE, RAIZ, versao_vigente
+from src.ingestao import BRONZE, RAIZ, versao_vigente
 
 TAMANHO_BLOCO = 100_000
 SILVER = RAIZ / "data" / "silver"
@@ -69,14 +69,14 @@ COLUNAS_ORIGEM = {
     "longitude": "lon",
     "distrito": "distrito",
 }
-SCHEMA = [
+ESQUEMA = [
     "data_abertura", "data_finalizacao", "servico", "flag_corredor", "status", "status_original",
     "canal", "orgao", "logradouro", "lat", "lon", "distrito",
     "trimestre", "versao_bronze", "data_extracao",
 ]
 # O que validar devolve. Os rejeitados param aqui; os válidos ainda passam pelo geo.enriquecer.
-SCHEMA_VALIDADO = SCHEMA + ["subprefeitura", "zona", "flag_finalizado_sem_data", "flag_sem_subprefeitura"]
-SCHEMA_REJEITADOS = SCHEMA_VALIDADO + ["motivo"]
+ESQUEMA_VALIDADO = ESQUEMA + ["subprefeitura", "zona", "flag_finalizado_sem_data", "flag_sem_subprefeitura"]
+ESQUEMA_REJEITADOS = ESQUEMA_VALIDADO + ["motivo"]
 
 # Ordem importa: o primeiro motivo que se aplicar é o que fica.
 REGRAS = [
@@ -96,7 +96,7 @@ log = logging.getLogger("silver")
 
 # ----------------------------------------------------------------- funções públicas
 def ler_trimestre(trimestre: str, bronze: Path = BRONZE) -> pd.DataFrame:
-    """Lê a versão vigente do trimestre em blocos, filtra o escopo e devolve a tabela no SCHEMA."""
+    """Lê a versão vigente do trimestre em blocos, filtra o escopo e devolve a tabela no ESQUEMA."""
     versao = versao_vigente(trimestre, bronze=bronze)
     manifesto = ler_manifesto(versao)
     for chave in CAMPOS_MANIFESTO:
@@ -133,8 +133,8 @@ def anexar_subprefeitura(df: pd.DataFrame, referencia: Path = REFERENCIA_SUBPREF
 
     Distrito sem correspondência gera aviso. O merge preserva a ordem das linhas, mas não o índice.
     """
-    ref = pd.read_csv(referencia, dtype="string").rename(columns={"distrito": coluna})
-    juntado = df.merge(ref, on=coluna, how="left", validate="many_to_one")
+    tabela_ref = pd.read_csv(referencia, dtype="string").rename(columns={"distrito": coluna})
+    juntado = df.merge(tabela_ref, on=coluna, how="left", validate="many_to_one")
     sem_par = juntado.loc[juntado[coluna].notna() & juntado["subprefeitura"].isna(), coluna]
     if not sem_par.empty:
         log.warning("Distritos ausentes em %s (%d chamados ficam sem subprefeitura): %s",
@@ -153,7 +153,7 @@ def reanexar_por_distrito_final(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def validar(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Separa (válidos, rejeitados). Espera as colunas de SCHEMA mais subprefeitura e zona."""
+    """Separa (válidos, rejeitados). Espera as colunas de ESQUEMA mais subprefeitura e zona."""
     df = df.copy()
     condicoes = [regra(df).fillna(False).to_numpy(dtype=bool) for _, regra in REGRAS]
     motivo = np.select(condicoes, [nome for nome, _ in REGRAS], default="")
@@ -163,9 +163,9 @@ def validar(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     df["flag_sem_subprefeitura"] = df["subprefeitura"].isna()
 
     rejeitado = motivo != ""
-    validos = df.loc[~rejeitado, SCHEMA_VALIDADO].reset_index(drop=True)
+    validos = df.loc[~rejeitado, ESQUEMA_VALIDADO].reset_index(drop=True)
     rejeitados = df.loc[rejeitado].assign(motivo=pd.Series(motivo[rejeitado], dtype="string").values)
-    return validos, rejeitados[SCHEMA_REJEITADOS].reset_index(drop=True)
+    return validos, rejeitados[ESQUEMA_REJEITADOS].reset_index(drop=True)
 
 
 def gerar_silver(trimestres: list[str] | None = None, saida: Path = SILVER,
@@ -179,7 +179,7 @@ def gerar_silver(trimestres: list[str] | None = None, saida: Path = SILVER,
         raise FileNotFoundError(f"Nenhum trimestre na bronze ({bronze}). Rode a ingestão antes.")
     df = pd.concat([ler_trimestre(t, bronze=bronze) for t in trimestres], ignore_index=True)
     validos, rejeitados = validar(anexar_subprefeitura(df))
-    validos = reanexar_por_distrito_final(geo.enriquecer(validos))[SCHEMA_VALIDADO + geo.COLUNAS_GEO]
+    validos = reanexar_por_distrito_final(geo.enriquecer(validos))[ESQUEMA_VALIDADO + geo.COLUNAS_GEO]
     manifesto = {
         "gerado_em": datetime.now(timezone.utc).isoformat(),
         "versoes_bronze": df.groupby("trimestre")["versao_bronze"].first().to_dict(),
@@ -283,7 +283,7 @@ def _transformar(bruto: pd.DataFrame, manifesto: dict) -> pd.DataFrame:
     df["trimestre"] = pd.Series(trimestre, index=df.index, dtype="string")
     df["versao_bronze"] = pd.Series(manifesto["versao"], index=df.index, dtype="string")
     df["data_extracao"] = _data_extracao(manifesto)
-    return df[SCHEMA]
+    return df[ESQUEMA]
 
 
 def _data_extracao(manifesto: dict) -> pd.Timestamp:

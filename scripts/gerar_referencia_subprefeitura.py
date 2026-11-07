@@ -9,7 +9,7 @@ ou quando a prefeitura mudar a divisão, revise o CSV à mão e faça commit.
 import pandas as pd
 
 from src.comum import ler_manifesto, normalizar
-from src.ingest import BRONZE, versao_vigente
+from src.ingestao import BRONZE, versao_vigente
 from src.silver import REFERENCIA_SUBPREFEITURA
 
 TAMANHO_BLOCO = 500_000
@@ -79,7 +79,7 @@ def contar_pares() -> pd.DataFrame:
     return pares.groupby(["prefeitura", "distrito"])["n"].sum().reset_index()
 
 
-def main() -> None:
+def executar() -> None:
     pares = contar_pares()
 
     codigos = pares["distrito"].str.fullmatch(r"\d+")
@@ -94,23 +94,23 @@ def main() -> None:
 
     total = pares.groupby("distrito")["n"].sum()
     dominante = pares.sort_values("n", ascending=False).drop_duplicates("distrito").set_index("distrito")
-    ref = pd.DataFrame({
+    tabela_ref = pd.DataFrame({
         "distrito": dominante.index,
         "subprefeitura": dominante["prefeitura"].values,
         "zona": dominante["prefeitura"].map(ZONAS).values,
     }).sort_values("distrito").reset_index(drop=True)
-    dominancia = (dominante["n"] / total).reindex(ref["distrito"])
+    dominancia = (dominante["n"] / total).reindex(tabela_ref["distrito"])
 
-    faltando = set(ZONAS) - set(ref["subprefeitura"])
+    faltando = set(ZONAS) - set(tabela_ref["subprefeitura"])
     assert not faltando, f"subprefeituras sem nenhum distrito: {sorted(faltando)}"
-    assert len(ref) == 96, f"esperados 96 distritos, encontrados {len(ref)}"
+    assert len(tabela_ref) == 96, f"esperados 96 distritos, encontrados {len(tabela_ref)}"
 
     REFERENCIA_SUBPREFEITURA.parent.mkdir(parents=True, exist_ok=True)
-    ref.to_csv(REFERENCIA_SUBPREFEITURA, index=False, encoding="utf-8")
-    print(f"Gravado {REFERENCIA_SUBPREFEITURA.relative_to(REFERENCIA_SUBPREFEITURA.parents[2])}: {len(ref)} distritos\n")
+    tabela_ref.to_csv(REFERENCIA_SUBPREFEITURA, index=False, encoding="utf-8")
+    print(f"Gravado {REFERENCIA_SUBPREFEITURA.relative_to(REFERENCIA_SUBPREFEITURA.parents[2])}: {len(tabela_ref)} distritos\n")
 
     print("Para revisar à mão — distritos por subprefeitura:")
-    for (zona, sub), grupo in ref.groupby(["zona", "subprefeitura"]):
+    for (zona, sub), grupo in tabela_ref.groupby(["zona", "subprefeitura"]):
         print(f"  {zona:6s} {sub:30s} {len(grupo)}: {', '.join(grupo['distrito'])}")
     baixos = dominancia[dominancia < DOMINANCIA_MINIMA]
     print(f"\nDistritos com subprefeitura dominante abaixo de {DOMINANCIA_MINIMA:.0%}:",
@@ -119,4 +119,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    executar()

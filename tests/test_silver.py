@@ -10,7 +10,7 @@ import pytest
 from pandas.api.types import is_datetime64_any_dtype, is_float_dtype
 
 from src.comum import ler_manifesto
-from src.ingest import BRONZE, versao_vigente
+from src.ingestao import BRONZE, versao_vigente
 from src.silver import SILVER, _data_extracao, ler_silver, ler_trimestre
 
 # Contagens da pergunta 3 de scripts/levantamento_escopo.py
@@ -102,12 +102,12 @@ def test_parquet_gravado_reconcilia():
 def test_silver_gravada_inclui_o_geo_e_seus_parametros():
     """O gerar_silver grava as colunas do geo e registra na linhagem os parâmetros usados."""
     from src import geo
-    from src.silver import SCHEMA_VALIDADO
+    from src.silver import ESQUEMA_VALIDADO
 
     if not (SILVER / "chamados.parquet").exists():
         pytest.skip("silver ainda não gerada: rode python -m scripts.gerar_silver")
     validos, _, manifesto = ler_silver()
-    assert list(validos.columns) == SCHEMA_VALIDADO + geo.COLUNAS_GEO
+    assert list(validos.columns) == ESQUEMA_VALIDADO + geo.COLUNAS_GEO
     # JSON grava tuplas como listas: compara depois de converter
     assert manifesto["parametros_geo"] == {
         "limite_repeticao_m": geo.LIMITE_REPETICAO_M,

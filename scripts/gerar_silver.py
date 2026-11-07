@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 pd.set_option("display.width", 200)
 
 
-def main() -> None:
+def executar() -> None:
     validos, rejeitados = gerar_silver()
     total = len(validos) + len(rejeitados)
     print(f"\nVálidos: {len(validos):,} | Rejeitados: {len(rejeitados):,} | Total: {total:,}")
@@ -26,9 +26,9 @@ def main() -> None:
     print(tabela.to_string())
 
     print("\nFlags nos válidos:")
-    for flag in ["flag_finalizado_sem_data", "flag_sem_subprefeitura", "flag_corredor",
+    for coluna in ["flag_finalizado_sem_data", "flag_sem_subprefeitura", "flag_corredor",
                  "flag_repeticao", "flag_distrito_divisa", "flag_sem_votos"]:
-        print(f"  {flag}: {int(validos[flag].sum()):,}")
+        print(f"  {coluna}: {int(validos[coluna].sum()):,}")
 
     print("\nOrigem do distrito_final:", validos["origem_distrito"].value_counts(dropna=False).to_dict())
     print("Nível da inferência:", validos["nivel_distrito"].value_counts().to_dict())
@@ -47,4 +47,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    executar()

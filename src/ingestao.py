@@ -29,7 +29,7 @@ MAX_DATAS_INVALIDAS = 0.01             # mais de 1% de datas ilegíveis -> recus
 COLUNA_ABERTURA = "data de abertura"
 COLUNA_FINALIZACAO = "data de finalizacao"
 
-log = logging.getLogger("ingest")
+log = logging.getLogger("ingestao")
 
 
 # ----------------------------------------------------------------- funções públicas
@@ -108,7 +108,7 @@ def versao_vigente(trimestre: str, bronze: Path = BRONZE) -> Path:
 # ----------------------------------------------------------------- detecção do trimestre
 def _perfilar(caminho: Path) -> dict:
     """Lê as colunas de data, serviço e status e devolve o trimestre e um resumo para o manifesto."""
-    encoding, sep, cabecalho = _detectar_formato(caminho)
+    codificacao, separador, cabecalho = _detectar_formato(caminho)
     nomes = {normalizar(c): c for c in cabecalho}
 
     if COLUNA_ABERTURA not in nomes:
@@ -121,7 +121,7 @@ def _perfilar(caminho: Path) -> dict:
     if COLUNA_FINALIZACAO in nomes:
         colunas.append(nomes[COLUNA_FINALIZACAO])
 
-    df = pd.read_csv(caminho, sep=sep, encoding=encoding, usecols=colunas, dtype=str)
+    df = pd.read_csv(caminho, sep=separador, encoding=codificacao, usecols=colunas, dtype=str)
 
     # Linhas sem data, serviço e status são enchimento de planilha (ex.: 2025T1), não dados.
     vazia = df[[nomes[COLUNA_ABERTURA], nomes["servico"], nomes["status"]]].isna().all(axis=1)
@@ -152,8 +152,8 @@ def _perfilar(caminho: Path) -> dict:
         "abertura_max": abertura.max().date().isoformat(),
         "finalizacao_max": finalizacao_max,
         "datas_abertura_invalidas": int(abertura.isna().sum()),
-        "encoding": encoding,
-        "separador": sep,
+        "encoding": codificacao,
+        "separador": separador,
     }
 
 
@@ -185,15 +185,15 @@ def _detectar_formato(caminho: Path) -> tuple[str, str, list[str]]:
     """Descobre codificação e separador olhando só a primeira linha."""
     with caminho.open("rb") as f:
         primeira = f.readline()
-    for encoding in ("utf-8-sig", "latin-1"):
+    for codificacao in ("utf-8-sig", "latin-1"):
         try:
-            linha = primeira.decode(encoding).strip()
+            linha = primeira.decode(codificacao).strip()
             break
         except UnicodeDecodeError:
             continue
-    sep = ";" if linha.count(";") > linha.count(",") else ","
-    cabecalho = [c.strip().strip('"') for c in linha.split(sep)]
-    return encoding, sep, cabecalho
+    separador = ";" if linha.count(";") > linha.count(",") else ","
+    cabecalho = [c.strip().strip('"') for c in linha.split(separador)]
+    return codificacao, separador, cabecalho
 
 
 # ----------------------------------------------------------------- auxiliares

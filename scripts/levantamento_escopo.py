@@ -16,7 +16,7 @@ from collections import Counter
 import pandas as pd
 
 from src.comum import ler_manifesto, normalizar
-from src.ingest import BRONZE, versao_vigente
+from src.ingestao import BRONZE, versao_vigente
 
 TAMANHO_BLOCO = 100_000
 COLUNAS_ESCOPO = ["data de abertura", "servico", "status", "meio de comunicacao",
@@ -142,7 +142,7 @@ def q5_territorio(escopo: pd.DataFrame, tris: list[str]) -> None:
     print(f"\nLinhas na prefeitura mais frequente do próprio distrito: {dominante:.1%}")
 
 
-def main() -> None:
+def executar() -> None:
     cabecalhos, manifestos, escopo, servicos = ler_bronze()
     tris = list(cabecalhos)
     print(f"\nTotal no escopo: {len(escopo):,} chamados em {len(tris)} trimestres")
@@ -154,4 +154,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    executar()

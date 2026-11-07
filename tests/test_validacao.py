@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from src.comum import MANIFESTO
-from src.silver import (REFERENCIA_SUBPREFEITURA, REGRAS, SCHEMA, _gravar_atomico, anexar_subprefeitura,
+from src.silver import (REFERENCIA_SUBPREFEITURA, REGRAS, ESQUEMA, _gravar_atomico, anexar_subprefeitura,
                         ler_silver, reanexar_por_distrito_final, validar)
 
 BASE = {
@@ -38,7 +38,7 @@ def chamados(*alteracoes: dict) -> pd.DataFrame:
     df = pd.DataFrame([{**BASE, **a} for a in alteracoes])
     for coluna in ["data_abertura", "data_finalizacao", "data_extracao"]:
         df[coluna] = pd.to_datetime(df[coluna])
-    texto = [c for c in SCHEMA + ["subprefeitura", "zona"] if df[c].dtype == object]
+    texto = [c for c in ESQUEMA + ["subprefeitura", "zona"] if df[c].dtype == object]
     return df.astype({c: "string" for c in texto})
 
 
@@ -88,11 +88,11 @@ def test_valido_mais_rejeitado_soma_a_entrada():
 
 
 def test_referencia_tem_96_distritos_unicos():
-    ref = pd.read_csv(REFERENCIA_SUBPREFEITURA)
-    assert list(ref.columns) == ["distrito", "subprefeitura", "zona"]
-    assert len(ref) == 96 and ref["distrito"].is_unique
-    assert ref["subprefeitura"].nunique() == 32
-    assert set(ref["zona"]) == {"Centro", "Norte", "Sul", "Leste", "Oeste"}
+    tabela_ref = pd.read_csv(REFERENCIA_SUBPREFEITURA)
+    assert list(tabela_ref.columns) == ["distrito", "subprefeitura", "zona"]
+    assert len(tabela_ref) == 96 and tabela_ref["distrito"].is_unique
+    assert tabela_ref["subprefeitura"].nunique() == 32
+    assert set(tabela_ref["zona"]) == {"Centro", "Norte", "Sul", "Leste", "Oeste"}
 
 
 def test_distrito_sem_par_na_referencia_gera_aviso(caplog):

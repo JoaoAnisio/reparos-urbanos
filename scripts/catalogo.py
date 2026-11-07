@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 import pandas as pd
-from src.ingest import BRONZE, versao_vigente
+from src.ingestao import BRONZE, versao_vigente
 
 linhas = []
 for pasta in sorted(BRONZE.glob("trimestre=*")):

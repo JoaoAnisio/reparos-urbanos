@@ -4,7 +4,7 @@ Pipeline de dados sobre os chamados de tapa-buraco abertos no SP156, o canal de 
 Prefeitura de São Paulo. Os dados vêm do portal de dados abertos da prefeitura (licença CC0) e
 passam por duas camadas:
 
-- **Bronze** (`src/ingest.py`): cópia fiel de cada arquivo trimestral, versionada e com manifesto.
+- **Bronze** (`src/ingestao.py`): cópia fiel de cada arquivo trimestral, versionada e com manifesto.
 - **Silver** (`src/silver.py`, `src/geo.py`): só os chamados de tapa-buraco, com tipos corrigidos,
   validação (rejeitados vão para uma tabela própria, com o motivo), subprefeitura e zona por uma
   tabela de referência, e enriquecimento geográfico com H3 (distrito inferido, repetições).
@@ -19,7 +19,7 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 
 # Coloque os CSVs trimestrais em data/raw/ (ver data/README.md)
-python -m scripts.ingest_all       # bronze
+python -m scripts.ingerir_todos    # bronze
 python -m scripts.gerar_silver     # silver: data/silver/chamados.parquet e rejeitados.parquet
 pytest -q                          # sem bronze, os testes de dados reais são pulados
 ```
