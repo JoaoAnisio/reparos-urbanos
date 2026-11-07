@@ -26,3 +26,5 @@ dbt_reparos/target/
 dbt_reparos/dbt_packages/
 dbt_reparos/logs/
 dbt_reparos/.user.yml
+# dbt rodado fora de dbt_reparos/ cria logs/ na raiz
+logs/
