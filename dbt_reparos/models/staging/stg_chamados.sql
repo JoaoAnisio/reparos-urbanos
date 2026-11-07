@@ -27,13 +27,7 @@ select
     cast(orgao as varchar)                              as orgao,
 
     cast(logradouro as varchar)                         as logradouro,
-    case
-        when logradouro is null then null
-        when lower(strip_accents(split_part(trim(logradouro), ' ', 1)))
-             in ('avenida', 'rua', 'estrada', 'travessa', 'viaduto', 'ponte')
-            then lower(strip_accents(split_part(trim(logradouro), ' ', 1)))
-        else 'outros'
-    end                                                 as tipo_via,
+    {{ tipo_via('logradouro') }}                        as tipo_via,
 
     round(lat, 3)                                       as lat_aprox,
     round(lon, 3)                                       as lon_aprox,

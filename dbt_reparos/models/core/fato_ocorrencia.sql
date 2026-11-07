@@ -58,6 +58,7 @@ select
     extensao_m,
     flag_corredor,
     m.logradouro,
+    {{ tipo_via('m.logradouro') }}                                         as tipo_via,
     m.distrito_final,
     m.celula_r8,
     lat_aprox,
