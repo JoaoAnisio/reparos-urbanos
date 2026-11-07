@@ -32,6 +32,8 @@ mkdir -p data/gold
 cd dbt_reparos
 dbt seed --profiles-dir .
 dbt build --profiles-dir .         # modelos + testes de dados
+cd .. && python -m scripts.prever  # backtest e previsão (grava em marts; rodar depois do dbt build)
+cd dbt_reparos
 dbt docs generate --profiles-dir . && dbt docs serve --profiles-dir .
 ```
 
@@ -49,6 +51,55 @@ A gold não guarda coordenada exata nem a célula r10: só lat/lon com 3 casas (
 r8. O teste `assert_sem_dado_pessoal` falha se surgir em core ou marts uma coluna com nome de dado
 pessoal (número, CEP, protocolo, CPF, e-mail, telefone).
 
+### Marts
+
+| Tabela | Conteúdo |
+|---|---|
+| `marts.mart_fila_prioridade` | ocorrências abertas com os 5 componentes, o `score` (0 a 10), `posicao_fila` e `flag_verificar_em_campo` (abertas há mais de 180 dias) |
+| `marts.mart_kpis_mensal` | por mês de abertura e zona: chamados, ocorrências, taxa de resolução, tempo mediano de reparo, % de reincidência |
+| `marts.mart_mapa_calor` | por célula H3 r8, últimos 12 meses, só células com 3 ou mais chamados (k-anonimato) |
+| `marts.mart_equidade` | por subprefeitura: % de canais digitais, tempo de reparo (mediana e p90), % de abertas há mais de 90 dias |
+| `marts.previsao_subprefeitura` | chamados previstos por subprefeitura nos 3 meses seguintes (`scripts/prever.py`) |
+| `marts.previsao_backtest` | previsto × real de 07 a 09/2026, treinando até 06/2026 |
+
+**Score de prioridade** = 10 × soma ponderada de 5 componentes entre 0 e 1. Pesos e tetos ficam em
+`vars` no `dbt_project.yml`, e um teste falha se os pesos não somarem 1.
+
+| Componente | Peso | Fórmula |
+|---|---|---|
+| espera | 0,30 | `dias_em_aberto / 30`, limitado a 1 |
+| via | 0,25 | corredor de ônibus 1,0 · avenida, estrada, viaduto ou ponte 0,7 · demais 0,4 |
+| demanda | 0,15 | `ln(1 + qtd_chamados) / ln(11)`, limitado a 1 |
+| reincidência | 0,15 | `numero_reincidencia / 3`, limitado a 1 |
+| equidade | 0,15 | `percent_rank` da mediana de tempo de reparo da subprefeitura; sem subprefeitura, 0,5 |
+
+Como ler:
+
+- **A espera quase não diferencia as abertas.** 89% delas (14.881 de 16.708) têm 30 dias ou
+  mais e recebem o componente máximo; na prática a espera soma 3 pontos a quase todas, e a ordem
+  vem dos outros componentes.
+- **O topo tem empates.** O score máximo possível é 9,90, e não 10, porque a equidade é um
+  `percent_rank` e as 3 subprefeituras mais lentas empatam em 0,935. 19 ocorrências empatam em
+  9,90; entre elas, a mais antiga vem primeiro.
+- **O topo ainda é, em boa parte, passivo antigo.** 17 das 19 primeiras têm
+  `flag_verificar_em_campo` (46% das abertas passam de 180 dias); a primeira sem a flag está na
+  posição 18. Antes de despachar pelo topo, a equipe confirma o status em campo.
+- **% de reincidência cresce com o tempo por construção.** Uma reincidência precisa de uma
+  ocorrência anterior dentro dos dados, que começam em 07/2024. Nos primeiros meses quase nada
+  pode ser reincidência (3,7% em 07/2024 na zona Leste, contra mais de 50% em 2025): a subida é
+  artefato da janela, não piora real.
+- **A taxa de resolução dos meses recentes ainda vai subir**: parte das ocorrências abertas há
+  pouco não teve tempo de ser resolvida. Os meses de 07 a 09/2024 também aparecem baixos, por
+  causa dos status desatualizados do 2024T3.
+
+**Previsão.** O baseline sazonal (mesmo mês do ano anterior × nível dos 3 últimos meses contra os
+mesmos meses um ano antes) **errou mais que a referência ingênua** (repetir o último mês): erro
+médio absoluto de 144 contra 109 chamados por subprefeitura e mês, treinando até 06/2026. Repetido
+em todas as origens possíveis (09/2025 a 06/2026), o sazonal vence em 1 de 10 (média de 112 contra
+90). Com só dois anos de dados, o ano anterior ainda é um guia fraco, e a razão de nível amplifica
+oscilações curtas. Por isso `scripts/prever.py` grava a previsão do método que errou menos no
+backtest, hoje o ingênuo.
+
 Linhagem (extraída do `manifest.json` do dbt; o print do `dbt docs serve` fica em
 `docs/linhagem_dbt.png`):
 
@@ -61,6 +112,21 @@ graph LR
     stg_chamados --> fato_chamado
     stg_chamados --> fato_ocorrencia
     seed[(distrito_subprefeitura)] --> dim_local
+    fato_ocorrencia --> mart_fila_prioridade
+    dim_local --> mart_fila_prioridade
+    mart_equidade --> mart_fila_prioridade
+    fato_chamado --> mart_kpis_mensal
+    fato_ocorrencia --> mart_kpis_mensal
+    dim_tempo --> mart_kpis_mensal
+    dim_local --> mart_kpis_mensal
+    fato_chamado --> mart_mapa_calor
+    fato_ocorrencia --> mart_mapa_calor
+    mart_fila_prioridade --> mart_mapa_calor
+    fato_chamado --> mart_equidade
+    fato_ocorrencia --> mart_equidade
+    dim_local --> mart_equidade
+    fato_chamado -.-> prever[[scripts/prever.py]]
+    prever -.-> previsao_subprefeitura
 ```
 
 Duas observações de uso:
