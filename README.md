@@ -52,8 +52,14 @@ r8). Numa amostra de 5.000 chamados *com* distrito, tirados dos eleitores, a vot
 **Ocorrência = componente conexo.** Dois chamados são do mesmo problema se estão na mesma rua, a
 até 80 m, e foram abertos com até 7 dias de diferença ou antes de o mais antigo ser finalizado;
 nenhuma ligação passa de 365 dias. As ligações formam um grafo, e cada componente conexo é uma
-ocorrência (A–B e B–C juntam A, B e C), com um id determinístico. Uma ocorrência que surge no mesmo
-ponto depois de outra resolvida é uma **reincidência**.
+ocorrência (A–B e B–C juntam A, B e C), com um id determinístico. Uma ocorrência que surge a até
+80 m, na mesma rua, de outra encerrada no ano anterior é contada como **reincidência**, e um grupo de
+controle mede quanto disso é de fato o mesmo ponto (ver Achados).
+
+**Duas listas, porque são duas perguntas.** A fila de despacho só tem abertas há até 180 dias,
+ordenadas pelo score de prioridade. As mais antigas vão para uma lista de **verificação em campo**,
+ordenada pelos dias em aberto: o status delas pode estar desatualizado, e a pergunta é "isso ainda
+existe?", não "qual atender primeiro?".
 
 ## Achados
 
@@ -74,13 +80,20 @@ até 80 m e em ±7 dias, e 30.118 são gêmeos exatos (mesmo ponto, mesmo dia, m
 chamados válidos viram **129.449 ocorrências**, 1,9 chamados por problema.
 
 **A rajada da Rua Anoriaçu.** Um único problema reuniu **361 chamados**: dois focos a 72 m um do
-outro, 96% pelo aplicativo, em rajadas de 70 a 122 por mês, com 189 ainda abertos. Contar
-chamados aqui superestimaria o problema em mais de 300 vezes.
+outro, 96% pelo aplicativo, em rajadas de 70 a 122 por mês, com 189 ainda abertos. **361 pedidos
+viraram uma única ocorrência registrada.** Se os dois focos são o mesmo trecho estragado ou dois
+buracos vizinhos, os dados não dizem: a ocorrência tem 164 m de extensão, por encadeamento.
 
-**O buraco volta.** **45% das ocorrências** (58.451) surgem no mesmo ponto de um problema já
-encerrado; 17.512 voltaram três vezes ou mais, e o recorde é 23. No corredor de ônibus, 69% das
-ocorrências dos últimos 12 meses são reincidências, contra 55% no resto da cidade, e os reparos
-dos últimos 90 dias levaram 14 dias de mediana, contra 6.
+**Perto de um problema encerrado, mas nem sempre o mesmo buraco.** **45% dos problemas surgem a
+até 80 m de um problema já encerrado no último ano** (58.451 de 129.449). Isso não quer dizer que
+45% dos buracos voltam: em ruas com muitos chamados, um buraco diferente no mesmo quarteirão também
+entra, e 41,6% das repetições estão a exatamente 0 m, sinal de geocodificação pelo endereço. O
+controle é a faixa seguinte da mesma rua, com o mesmo comprimento: **a 80–160 m, 34,7% dos
+problemas também têm um encerrado antes**. Só o excesso, cerca de **10 pontos percentuais**, é
+atribuível ao mesmo ponto. No corredor de ônibus a taxa bruta é maior (58,7%), mas o controle
+também é (52,6%): o excesso ali é de 6 pontos, menor que no resto da cidade (10,6). O corredor tem
+mais chamados por metro, não mais reincidência. O que o corredor tem de fato é reparo mais lento:
+nos últimos 90 dias, 14 dias de mediana contra 6.
 
 ## Como rodar
 
@@ -93,8 +106,9 @@ make pipeline     # bronze -> silver -> gold (dbt) -> previsão, ~1 min
 make painel       # http://localhost:8501
 ```
 
-`make testes` roda o pytest e os testes de dados do dbt. No GitHub Actions, sem os dados, os testes
-sintéticos rodam e os de dados reais são pulados.
+`requirements.txt` tem só o que a pipeline e o painel usam. Para os testes e os notebooks, instale
+`requirements-dev.txt`; `make testes` roda o pytest e os testes de dados do dbt. No GitHub Actions,
+sem os dados, os testes sintéticos rodam e os de dados reais são pulados.
 
 ![Painel](docs/painel.png)
 
@@ -115,6 +129,12 @@ sintéticos rodam e os de dados reais são pulados.
 - **Não há dado de severidade.** O arquivo não diz o tamanho nem o risco do buraco; a fila usa
   aproximações (tempo de espera, tipo de via, número de chamados, reincidência). "Finalizado" no
   SP156 também não garante conserto: a reincidência mede volta depois do encerramento do chamado.
+- **A reincidência está inflada pela densidade.** Só cerca de 10 dos 45 pontos percentuais são
+  atribuíveis ao mesmo ponto (ver Achados). O componente de reincidência do score herda essa
+  inflação; com peso de 15%, isso é aceitável, mas favorece ruas com muitos chamados.
+- **A via domina o topo da fila.** O corredor de ônibus vale 1,0 contra 0,7 de uma avenida, o que
+  dá 0,75 ponto a mais no score: 17 das 20 primeiras posições estão em corredor, que é só 3,8% da
+  fila.
 
 Detalhes do modelo estrela, do score de prioridade, da previsão e das medições:
 [docs/referencia_tecnica.md](docs/referencia_tecnica.md).

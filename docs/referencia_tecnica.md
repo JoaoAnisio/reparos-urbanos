@@ -20,11 +20,12 @@ pessoal (número, CEP, protocolo, CPF, e-mail, telefone).
 
 | Tabela | Conteúdo |
 |---|---|
-| `marts.mart_fila_prioridade` | ocorrências abertas com os 5 componentes, o `score` (0 a 10), `posicao_fila` e `flag_verificar_em_campo` (abertas há mais de 180 dias) |
+| `marts.mart_fila_prioridade` | abertas há até 180 dias, com os 5 componentes, o `score` (0 a 10) e `posicao_fila` |
+| `marts.mart_verificacao_campo` | abertas há mais de 180 dias, das mais antigas para as mais novas: confirmar se ainda existem antes de despachar |
 | `marts.mart_kpis_mensal` | por mês de abertura e zona: chamados, ocorrências, taxa de resolução, tempo mediano de reparo, % de reincidência |
 | `marts.mart_mapa_calor` | por célula H3 r8, últimos 12 meses, só células com 3 ou mais chamados (k-anonimato) |
 | `marts.mart_equidade` | por subprefeitura: % de canais digitais, tempo de reparo (mediana e p90), % de abertas há mais de 90 dias |
-| `marts.mart_indicadores` | os 4 indicadores do painel para cada combinação de zona e corredor, com os totais (`group by cube`) |
+| `marts.mart_indicadores` | os 4 indicadores do painel para cada combinação de zona e corredor, com os totais (`group by cube`); taxa de resolução e reincidência sobre as ocorrências iniciadas de 15 a 3 meses antes da extração |
 | `marts.mart_serie_mensal` | chamados por mês, zona e corredor (contagens que se somam, para os filtros do painel) |
 | `marts.previsao_subprefeitura` | chamados previstos por subprefeitura nos 3 meses seguintes (`scripts/prever.py`) |
 | `marts.previsao_backtest` | previsto × real de 07 a 09/2026, treinando até 06/2026 |
@@ -34,7 +35,7 @@ pessoal (número, CEP, protocolo, CPF, e-mail, telefone).
 
 | Componente | Peso | Fórmula |
 |---|---|---|
-| espera | 0,30 | `dias_em_aberto / 30`, limitado a 1 |
+| espera | 0,30 | `dias_em_aberto / 180` (a fila só tem até 180 dias) |
 | via | 0,25 | corredor de ônibus 1,0 · avenida, estrada, viaduto ou ponte 0,7 · demais 0,4 |
 | demanda | 0,15 | `ln(1 + qtd_chamados) / ln(11)`, limitado a 1 |
 | reincidência | 0,15 | `numero_reincidencia / 3`, limitado a 1 |
@@ -42,15 +43,17 @@ pessoal (número, CEP, protocolo, CPF, e-mail, telefone).
 
 Como ler:
 
-- **A espera quase não diferencia as abertas.** 89% delas (14.881 de 16.708) têm 30 dias ou
-  mais e recebem o componente máximo; na prática a espera soma 3 pontos a quase todas, e a ordem
-  vem dos outros componentes.
-- **O topo tem empates.** O score máximo possível é 9,90, e não 10, porque a equidade é um
-  `percent_rank` e as 3 subprefeituras mais lentas empatam em 0,935. 19 ocorrências empatam em
-  9,90; entre elas, a mais antiga vem primeiro.
-- **O topo ainda é, em boa parte, passivo antigo.** 17 das 19 primeiras têm
-  `flag_verificar_em_campo` (46% das abertas passam de 180 dias); a primeira sem a flag está na
-  posição 18. Antes de despachar pelo topo, a equipe confirma o status em campo.
+- **Duas listas.** Das 16.708 abertas, 8.980 estão na fila e 7.728 (46%) na verificação em campo.
+  Antes da separação, com teto de espera de 30 dias, 89% das abertas tinham a espera no máximo e
+  17 das 19 primeiras posições eram passivo antigo.
+- **A espera voltou a diferenciar.** Com teto de 180 dias, só 0,3% da fila tem o componente em 1, e
+  o topo não tem empates (9,66, 9,62, 9,47).
+- **A via passou a dominar o topo.** 17 das 20 primeiras posições estão em corredor de ônibus, que
+  é só 3,8% da fila: o corredor vale 1,0 contra 0,7 de uma avenida (0,75 ponto de score).
+- **A reincidência do score está inflada pela densidade de chamados.** Pelo grupo de controle
+  (0–80 m contra 80–160 m), só cerca de 10 dos 45 pontos percentuais são atribuíveis ao mesmo
+  ponto. O componente herda essa inflação; com peso de 15% é aceitável, mas favorece ruas com
+  muitos chamados.
 - **% de reincidência cresce com o tempo por construção.** Uma reincidência precisa de uma
   ocorrência anterior dentro dos dados, que começam em 07/2024. Nos primeiros meses quase nada
   pode ser reincidência (3,7% em 07/2024 na zona Leste, contra mais de 50% em 2025): a subida é
@@ -92,6 +95,8 @@ graph LR
     dim_local --> mart_kpis_mensal
     fato_chamado --> mart_mapa_calor
     fato_ocorrencia --> mart_mapa_calor
+    fato_ocorrencia --> mart_verificacao_campo
+    dim_local --> mart_verificacao_campo
     mart_fila_prioridade --> mart_mapa_calor
     fato_chamado --> mart_equidade
     fato_ocorrencia --> mart_equidade

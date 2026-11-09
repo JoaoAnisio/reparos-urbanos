@@ -31,24 +31,31 @@ Não rode a pipeline com o painel aberto (o DuckDB não aceita gravação com o 
 - Os chamados ligados formam um grafo; cada componente conexo é um problema físico.
   **244 mil chamados viram 129 mil problemas.**
 - **A rajada da Rua Anoriaçu:** um só problema com 361 chamados, 96% pelo aplicativo, 189 ainda
-  abertos. Contar chamados aqui erraria por mais de 300 vezes.
+  abertos. 361 pedidos viraram uma única ocorrência registrada (se é um trecho estragado ou dois
+  buracos vizinhos, os dados não dizem).
 
-## 4. O buraco que volta (45 s)
+## 4. O buraco que volta? (45 s)
 
-- **45% dos problemas** aparecem no mesmo ponto de um problema já encerrado; 17 mil voltaram três
-  vezes ou mais, e o recorde é 23.
-- No corredor de ônibus é pior: 69% de reincidência contra 55%, e o reparo leva 14 dias de mediana
-  contra 6.
+- **45% dos problemas surgem a até 80 m de um problema já encerrado no último ano.** Mas isso não
+  quer dizer que o mesmo buraco voltou.
+- Mesmo método dos 80 m: comparar com a faixa seguinte da rua, de 80 a 160 m. Lá, 35% também têm um
+  problema encerrado antes. **Só uns 10 pontos são atribuíveis ao mesmo ponto**; o resto é rua com
+  muito chamado.
+- O corredor de ônibus parecia pior (59% contra 45%), mas o controle também é maior: ele tem mais
+  chamados, não mais reincidência. O que o corredor tem de fato é reparo mais lento: 14 dias de
+  mediana contra 6.
 - Ressalva honesta: "finalizado" no SP156 é o encerramento do chamado, não a garantia de conserto.
 
 ## 5. A fila e o mapa, ao vivo (60 s)
 
-- **Indicadores no topo:** 16,7 mil problemas abertos, 6 dias de mediana para reparar.
+- **Indicadores no topo:** 16,7 mil problemas abertos (9 mil na fila, 7,7 mil a verificar em
+  campo), 6 dias de mediana para reparar. A taxa de resolução usa ocorrências de 15 a 3 meses atrás,
+  para não contar como "não resolvido" o que abriu ontem.
 - **Mapa:** os hexágonos H3 mostram onde se concentram os chamados do último ano.
 - **Fila:** abra o top 10 e o "Por que essa ordem?". O score combina espera, tipo de via, demanda,
   reincidência e equidade, com os pesos à vista.
-- Aponte a coluna "verificar em campo": problemas abertos há mais de 180 dias podem ter status
-  desatualizado, e a equipe confirma antes de despachar.
+- Mostre a lista **"Verificar em campo"**: problemas abertos há mais de 180 dias saem da fila,
+  porque a pergunta para eles é outra, "isso ainda existe?".
 - Filtre **Leste** e **corredor = sim**: tudo se recalcula.
 - Mostre a série mensal: as faixas do período chuvoso e a previsão. Conte que o modelo sazonal
   **perdeu** para "repetir o último mês" no backtest (erro de 144 contra 109), e por isso o painel
