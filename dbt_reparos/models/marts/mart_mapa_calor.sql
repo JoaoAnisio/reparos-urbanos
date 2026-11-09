@@ -14,8 +14,17 @@ chamados as (
     where c.data_abertura > r.ultima_extracao - interval 12 month
 ),
 
+-- Todas as abertas iniciadas na janela (inclusive as que aguardam verificação em campo)
 abertas as (
-    select f.celula_r8, count(*) as ocorrencias_abertas, avg(f.score) as score_medio_abertas
+    select o.celula_r8, count(*) as ocorrencias_abertas
+    from {{ ref('fato_ocorrencia') }} as o, referencia as r
+    where o.situacao = 'aberta' and o.inicio > r.ultima_extracao - interval 12 month
+    group by o.celula_r8
+),
+
+-- Score médio só das que estão na fila de despacho (até 180 dias)
+fila as (
+    select f.celula_r8, avg(f.score) as score_medio_fila
     from {{ ref('mart_fila_prioridade') }} as f, referencia as r
     where f.inicio > r.ultima_extracao - interval 12 month
     group by f.celula_r8
@@ -34,6 +43,7 @@ select
     p.chamados,
     p.zona,
     coalesce(a.ocorrencias_abertas, 0)                  as ocorrencias_abertas,
-    round(a.score_medio_abertas, 2)                     as score_medio_abertas
+    round(f.score_medio_fila, 2)                        as score_medio_fila
 from por_celula as p
 left join abertas as a using (celula_r8)
+left join fila as f using (celula_r8)

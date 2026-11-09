@@ -1,4 +1,6 @@
--- Fila de despacho: só ocorrências abertas, ordenadas pelo score de prioridade (0 a 10).
+-- Fila de despacho: ocorrências abertas há até dias_verificar_em_campo (180) dias, ordenadas pelo
+-- score de prioridade (0 a 10). As mais antigas vão para mart_verificacao_campo: não competem
+-- com os buracos atuais, porque antes é preciso confirmar se ainda existem.
 -- Cada componente vai de 0 a 1; os pesos e tetos ficam em vars (dbt_project.yml).
 -- A referência de tempo é o data_extracao de cada ocorrência (dias_em_aberto da fato).
 
@@ -7,6 +9,7 @@ with abertas as (
     from {{ ref('fato_ocorrencia') }} as o
     left join {{ ref('dim_local') }} as l on l.distrito = o.distrito_final
     where o.situacao = 'aberta'
+      and o.dias_em_aberto <= {{ var('dias_verificar_em_campo') }}
 ),
 
 -- Equidade: posição (percent_rank) da subprefeitura no tempo mediano de reparo, de 0 (a mais
@@ -56,8 +59,6 @@ select
     componente_demanda,
     componente_reincidencia,
     componente_equidade,
-    -- Status possivelmente desatualizado (ex.: abertas do 2024T3): a equipe confirma antes de despachar
-    dias_em_aberto > {{ var('dias_verificar_em_campo') }}                              as flag_verificar_em_campo,
     inicio,
     data_extracao,
     dias_em_aberto,

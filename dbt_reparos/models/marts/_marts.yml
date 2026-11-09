@@ -14,7 +14,7 @@ models:
               arguments: {to: ref('fato_ocorrencia'), field: id_ocorrencia}
       - name: score
         data_tests: [not_null]
-      - name: flag_verificar_em_campo
+      - name: dias_em_aberto
         data_tests: [not_null]
 
   - name: mart_kpis_mensal
@@ -71,3 +71,15 @@ models:
         data_tests: [not_null]
       - name: chamados
         data_tests: [not_null]
+
+  - name: mart_verificacao_campo
+    description: Abertas há mais de 180 dias, das mais antigas para as mais novas. O status pode estar desatualizado; a equipe confirma se o buraco ainda existe.
+    columns:
+      - name: posicao_verificacao
+        data_tests: [unique, not_null]
+      - name: id_ocorrencia
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments: {to: ref('fato_ocorrencia'), field: id_ocorrencia}

@@ -40,8 +40,9 @@ vars:
   peso_reincidencia: 0.15
   peso_equidade: 0.15
   # Tetos de normalização: a partir deles o componente vale 1.
-  teto_espera_dias: 30            # espera = dias_em_aberto / 30
+  teto_espera_dias: 180           # espera = dias_em_aberto / 180 (o mesmo corte da verificação)
   teto_demanda_chamados: 10       # demanda = ln(1 + qtd_chamados) / ln(1 + 10)
   teto_reincidencia: 3            # reincidência = numero_reincidencia / 3
-  # Abertas há mais que isso têm status possivelmente desatualizado: confirmar em campo.
+  # Abertas há mais que isso não entram na fila: vão para mart_verificacao_campo, porque o
+  # status pode estar desatualizado e a pergunta para elas é outra ("isso ainda existe?").
   dias_verificar_em_campo: 180

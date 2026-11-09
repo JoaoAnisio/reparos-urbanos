@@ -14,6 +14,7 @@
 -- depends_on: {{ ref('fato_chamado') }}
 -- depends_on: {{ ref('fato_ocorrencia') }}
 -- depends_on: {{ ref('mart_fila_prioridade') }}
+-- depends_on: {{ ref('mart_verificacao_campo') }}
 -- depends_on: {{ ref('mart_kpis_mensal') }}
 -- depends_on: {{ ref('mart_mapa_calor') }}
 -- depends_on: {{ ref('mart_equidade') }}
