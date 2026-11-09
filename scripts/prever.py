@@ -4,8 +4,9 @@ Uso:  python -m scripts.prever     (depois do dbt build)
 
 Grava no DuckDB da gold:
 - marts.previsao_backtest: origem em 06/2026, previsto x real de 07 a 09/2026
-- marts.previsao_subprefeitura: (mes, subprefeitura, previsto) para os 3 meses depois do último
-  mês observado, pelo método que errou menos no backtest
+- marts.previsao_subprefeitura: (mes, subprefeitura, previsto, metodo) para os 3 meses depois do
+  último mês observado, pelo método que errou menos no backtest (metodo = "sazonal" ou "ingenuo"),
+  para o painel descrever a previsão sem texto fixo
 """
 import duckdb
 import pandas as pd
@@ -43,6 +44,7 @@ def executar() -> None:
         futuro = prever(serie, origem, HORIZONTE).rename_axis(index="mes", columns="subprefeitura") \
                                                  .stack().rename("previsto").reset_index()
         futuro["mes"] = futuro["mes"].dt.to_timestamp().dt.date
+        futuro["metodo"] = vence
         gravar(con, "previsao_subprefeitura", futuro)
         print(f"\nmarts.previsao_subprefeitura: {len(futuro)} linhas, {origem + 1} a {origem + HORIZONTE}, "
               f"método {vence}; total previsto por mês:")

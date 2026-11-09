@@ -31,4 +31,5 @@ def test_painel_roda_sem_erro_com_filtros(zona, corredor):
     app.run()
     assert not app.exception, app.exception
     assert len(app.metric) == 4
-    assert len(app.dataframe) >= 3      # fila, componentes da fila e equidade
+    assert len(app.dataframe) >= 4      # fila, componentes, verificação em campo e equidade
+    assert any("errou menos no backtest" in c.value for c in app.caption) or corredor != "todos"
